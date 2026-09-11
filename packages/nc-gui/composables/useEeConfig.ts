@@ -158,7 +158,9 @@ export const useEeConfig = createSharedComposable(() => {
 
   const blockCustomSync = computed(() => true)
 
-  const blockUnique = computed(() => true)
+  // [CE-EE] F01 Unique values only: implemented in this fork (backend fully present in CE),
+  // so the feature is unblocked here instead of being paywalled like upstream CE.
+  const blockUnique = computed(() => false)
 
   // UUID field is EE-only — always blocked in CE
   const blockUuidField = computed(() => true)

@@ -223,25 +223,10 @@ export async function handleUniqueConstraintError({
   // Check ALL possible locations and formats - be extremely thorough
   // Also check if error was processed by extractDBError (has error.error === 'ERR_DATABASE_OP_FAILED')
 
-  // First, try to safely stringify the error to search for '23505' anywhere
-  let errorString = '';
-  try {
-    errorString = JSON.stringify(error);
-  } catch (e) {
-    // If stringify fails (circular reference), try to stringify key properties
-    errorString = JSON.stringify({
-      code: error?.code,
-      error: error?.error,
-      message: error?.message,
-      original: error?.original
-        ? {
-            code: error.original.code,
-            message: error.original.message,
-          }
-        : null,
-    });
-  }
-
+  // [CE-EE] R2 fix: structured code checks only — the previous free-text
+  // `errorString.includes('23505')` scan misattributed any error whose message
+  // merely contained the digits (e.g. invalid-input values like "abc23505xyz")
+  // as unique constraint violations.
   const has23505Anywhere =
     error?.code === '23505' ||
     error?.code === 23505 ||
@@ -257,9 +242,7 @@ export async function handleUniqueConstraintError({
     // Also check errno (MySQL uses this)
     error?.errno === 23505 ||
     error?.original?.errno === 23505 ||
-    error?.nativeError?.errno === 23505 ||
-    // Deep check: recursively search for '23505' in the error object
-    errorString.includes('23505');
+    error?.nativeError?.errno === 23505;
 
   // CRITICAL: If we detect 23505, we MUST throw - no exceptions
   // This is the PRIMARY detection point - if this fails, nothing will work
@@ -303,12 +286,41 @@ export async function handleUniqueConstraintError({
             c.column_name?.toLowerCase() === extractedColumnName.toLowerCase(),
         );
 
+        // [CE-EE] R2 fix: a violated constraint that doesn't belong to any
+        // meta unique column (e.g. the primary key `<table>_pkey`) is not a
+        // "unique values only" violation — let the original error propagate
+        // instead of blaming an arbitrary unique column.
+        if (!column) {
+          const constraintName: string =
+            error?.constraint ||
+            error?.original?.constraint ||
+            error?.nativeError?.constraint ||
+            '';
+          if (
+            !constraintName ||
+            constraintName.endsWith('_pkey') ||
+            modelColumns.filter((c) => c.unique).length === 0
+          ) {
+            return;
+          }
+        }
+
         // Extract value from error detail
         const valueMatch = errorDetail.match(
           /Key\s*\([^)]*\)\s*=\s*\(([^)]+)\)/,
         );
         if (valueMatch) {
           value = valueMatch[1].trim().replace(/^["']|["']$/g, '');
+        }
+        // [CE-EE] R3 fix: empty-string duplicates don't match the value regex
+        // (`([^)]+)` needs at least one char) — fall back to the submitted
+        // payload instead of reporting 'unknown'.
+        if ((!value || value === 'unknown') && column && insertData) {
+          const payloadValue =
+            insertData[column.column_name] ?? insertData[column.title];
+          if (payloadValue !== undefined && payloadValue !== null) {
+            value = String(payloadValue);
+          }
         }
       }
     }
@@ -609,12 +621,41 @@ export async function handleUniqueConstraintError({
             c.column_name?.toLowerCase() === extractedColumnName.toLowerCase(),
         );
 
+        // [CE-EE] R2 fix: a violated constraint that doesn't belong to any
+        // meta unique column (e.g. the primary key `<table>_pkey`) is not a
+        // "unique values only" violation — let the original error propagate
+        // instead of blaming an arbitrary unique column.
+        if (!column) {
+          const constraintName: string =
+            error?.constraint ||
+            error?.original?.constraint ||
+            error?.nativeError?.constraint ||
+            '';
+          if (
+            !constraintName ||
+            constraintName.endsWith('_pkey') ||
+            modelColumns.filter((c) => c.unique).length === 0
+          ) {
+            return;
+          }
+        }
+
         // Extract value from error detail
         const valueMatch = errorDetail.match(
           /Key\s*\([^)]*\)\s*=\s*\(([^)]+)\)/,
         );
         if (valueMatch) {
           value = valueMatch[1].trim().replace(/^["']|["']$/g, '');
+        }
+        // [CE-EE] R3 fix: empty-string duplicates don't match the value regex
+        // (`([^)]+)` needs at least one char) — fall back to the submitted
+        // payload instead of reporting 'unknown'.
+        if ((!value || value === 'unknown') && column && insertData) {
+          const payloadValue =
+            insertData[column.column_name] ?? insertData[column.title];
+          if (payloadValue !== undefined && payloadValue !== null) {
+            value = String(payloadValue);
+          }
         }
       }
     }
@@ -725,6 +766,15 @@ export async function handleUniqueConstraintError({
     columnName =
       extractColumnNameFromError(originalError, clientType) ||
       extractColumnNameFromError(error, clientType);
+  }
+
+  // [CE-EE] R3 fix: MySQL PK conflicts surface the key as 'PRIMARY' — that is
+  // the table's primary key, not one of our unique-value columns. Pass the
+  // original error through instead of blaming an arbitrary unique column.
+  // [CE-EE] R5 fix: MySQL 8 can report the key as '<table>.PRIMARY', so also
+  // match that suffix form.
+  if (columnName === 'PRIMARY' || columnName?.endsWith('.PRIMARY')) {
+    return;
   }
 
   // If still no column name, try to infer from insert data

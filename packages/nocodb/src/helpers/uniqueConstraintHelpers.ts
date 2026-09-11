@@ -12,6 +12,23 @@ import { NcError } from '~/helpers/catchError';
 export { isUniqueConstraintSupportedType, UNIQUE_CONSTRAINT_SUPPORTED_TYPES };
 
 /**
+ * [CE-EE] R1 fix: strict boolean normalization for the `unique` request flag.
+ * Truthy strings like "false" previously enabled the constraint downstream
+ * (truthiness checks) or leaked raw strings into meta — reject instead.
+ * @param context - NocoDB context
+ * @param value - Raw `unique` value from the request payload
+ * @returns boolean, or undefined when absent/null (no change requested)
+ */
+export function normalizeUniqueConstraintFlag(
+  context: NcContext,
+  value: unknown,
+): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'boolean') return value;
+  NcError.get(context).badRequest('The unique flag must be a boolean value');
+}
+
+/**
  * Validates unique constraint request and throws error if invalid
  * @param context - NocoDB context
  * @param uidt - UI data type
@@ -34,6 +51,19 @@ export function validateUniqueConstraint(
   if (source && !source.is_meta && !source.is_local) {
     NcError.get(context).badRequest(
       'Unique constraint is only supported for NC-DB (not external databases)',
+    );
+  }
+
+  // [CE-EE] R3 fix: sqlite DDL paths (createTable/addColumn/alterColumn) drop
+  // the unique flag silently, so reject it explicitly instead of failing
+  // silently at runtime.
+  // (cast needed: Source['type'] is DriverClient which omits 'sqlite3', but
+  // runtime values can still be sqlite3 for local sources; the client value
+  // is 'sqlite3', not 'sqlite' — see constants.ts DriverClient / SqlUiFactory)
+  const sourceType = source?.type as string;
+  if (sourceType === 'sqlite' || sourceType === 'sqlite3') {
+    NcError.get(context).badRequest(
+      'Unique constraint is not supported for SQLite databases',
     );
   }
 

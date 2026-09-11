@@ -133,7 +133,10 @@ import { LinkPlaceholderService } from '~/services/link-placeholder.service';
 import NcConnectionMgrv2 from '~/utils/common/NcConnectionMgrv2';
 import { ltarColumnConversion } from '~/helpers/ltarColumnConversion';
 import { pickPairedLtarColumn } from '~/helpers/ltarPairing';
-import { validateUniqueConstraint } from '~/helpers/uniqueConstraintHelpers';
+import {
+  normalizeUniqueConstraintFlag,
+  validateUniqueConstraint,
+} from '~/helpers/uniqueConstraintHelpers';
 import {
   convertAIRecordTypeToValue,
   convertValueToAIRecordType,
@@ -1305,8 +1308,27 @@ export class ColumnsService implements IColumnsService {
       ...param.column,
     };
 
+    // [CE-EE] R5 fix: preserve UUID invariants on NC-DB sources — unique and
+    // readonly are forced in columnAdd/tableCreate and cannot be undone via
+    // an update (otherwise PATCH {unique:false} / {readonly:false} would
+    // reintroduce the user-supplied-UUID / duplicate-value hole).
+    if (
+      (column.uidt === UITypes.UUID || param.column.uidt === UITypes.UUID) &&
+      source &&
+      (source.is_meta || source.is_local)
+    ) {
+      (param.column as any).unique = true;
+      (param.column as any).readonly = true;
+    }
+
     // Validate unique constraint for column updates
     if ('unique' in param.column) {
+      // [CE-EE] R1 fix: strict boolean normalization ("false" string used to
+      // flip the constraint back on via truthiness checks downstream)
+      param.column.unique = normalizeUniqueConstraintFlag(
+        context,
+        param.column.unique,
+      ) as any;
       // Check if disabling unique constraint (always allowed)
       if (!param.column.unique && column.unique) {
         // Disabling is allowed, no validation needed
@@ -4018,6 +4040,9 @@ export class ColumnsService implements IColumnsService {
     const originalCdf = colBody.cdf;
     const originalUnique = colBody.unique;
 
+    // [CE-EE] R1 fix: strict boolean normalization for the unique flag
+    colBody.unique = normalizeUniqueConstraintFlag(context, colBody.unique);
+
     // Validate unique constraint BEFORE getColumnPropsFromUIDT
     if (colBody.unique) {
       validateUniqueConstraint(
@@ -4137,7 +4162,11 @@ export class ColumnsService implements IColumnsService {
           colBody = await getColumnPropsFromUIDT(colBody, source);
 
           // UUID fields must have unique constraint (per PRD requirement DR-2)
-          colBody.unique = true;
+          // [CE-EE] R1 fix: only force unique on NC-DB sources — external
+          // sources keep the user-provided (already validated) flag so we
+          // never write constraints into customer databases.
+          const isNcDbSource = !!(source.is_meta || source.is_local);
+          colBody.unique = isNcDbSource ? true : !!colBody.unique;
 
           // UUID is DB-generated (gen_random_uuid()) and cannot be overridden.
           // Mirrors AutoNumber — the generic col.readonly guards in BaseModelSqlv2
@@ -4151,15 +4180,14 @@ export class ColumnsService implements IColumnsService {
           (colBody as any).id = columnId;
 
           // Generate unique constraint name and store in internal_meta
-          const internalMeta = this.storeUniqueConstraintNameInInternalMeta(
-            context,
-            {
-              base_id: context.base_id,
-              fk_model_id: table.id,
-              id: columnId,
-            },
-          );
-          colBody.internal_meta = internalMeta;
+          // [CE-EE] R1 fix: only for NC-DB sources (mirrors the unique gate above)
+          colBody.internal_meta = isNcDbSource
+            ? this.storeUniqueConstraintNameInInternalMeta(context, {
+                base_id: context.base_id,
+                fk_model_id: table.id,
+                id: columnId,
+              })
+            : undefined;
 
           // Create the physical column in the database
           const tableUpdateBody = {

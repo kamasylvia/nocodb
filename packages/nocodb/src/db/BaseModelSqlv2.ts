@@ -107,6 +107,8 @@ import { RelationManager } from '~/db/relation-manager';
 import sortV2 from '~/db/sortV2';
 import { customValidators } from '~/db/util/customValidators';
 import { NcError, OptionsNotExistsError } from '~/helpers/catchError';
+// [CE-EE] R1 fix: map unique violations on the update path too
+import { handleUniqueConstraintError } from '~/helpers/uniqueConstraintErrorHandler';
 import {
   _wherePk,
   applyPaginate,
@@ -2892,6 +2894,14 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
       }
       return newData;
     } catch (e) {
+      // [CE-EE] R1 fix: map unique constraint violations on the update path to
+      // the same FIELD_UNIQUE_CONSTRAINT_VIOLATION error the insert path
+      // returns, so frontend handling (errorUtils) covers updates too.
+      await handleUniqueConstraintError({
+        error: e,
+        baseModel: this,
+        insertData: data,
+      });
       await this.errorUpdate(e, data, cookie);
       throw e;
     }
@@ -4628,6 +4638,12 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
       return newData;
     } catch (e) {
       if (transaction) await transaction.rollback();
+      // [CE-EE] R1 fix: map unique violations on the bulk update path too
+      await handleUniqueConstraintError({
+        error: e,
+        baseModel: this,
+        insertData: Array.isArray(datas) ? datas?.[0] : datas,
+      });
       throw e;
     }
   }
@@ -4801,6 +4817,12 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
 
       return count;
     } catch (e) {
+      // [CE-EE] R2 fix: map unique violations on the bulkUpdateAll path too
+      await handleUniqueConstraintError({
+        error: e,
+        baseModel: this,
+        insertData: data,
+      });
       throw e;
     }
   }

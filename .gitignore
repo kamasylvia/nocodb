@@ -134,3 +134,8 @@ scripts/.onprem-dev-secrets.env
 scripts/.onprem-dev-keys/
 # Northwind runbook demo receiver log
 .demo-receiver.jsonl
+
+# [CE-EE] fork process files (task books, review reports, logs) — never commit
+.work/
+# [CE-EE] noco-integrations local layout shim (symlink core -> packages/core)
+packages/noco-integrations/packages/

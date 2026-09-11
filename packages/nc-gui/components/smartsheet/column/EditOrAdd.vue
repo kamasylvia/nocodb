@@ -1509,7 +1509,7 @@ const unique = computed({
                 sqlUi?.isUniqueSupportedField?.(formState.uidt) !== false &&
                 !isUUID(formState) &&
                 !isAutoNumber(formState) &&
-                showEEFeatures
+                !blockUnique /* [CE-EE] F01: fork ships unique values only, gate on feature flag not paywall visibility */
               "
               class="flex"
             >

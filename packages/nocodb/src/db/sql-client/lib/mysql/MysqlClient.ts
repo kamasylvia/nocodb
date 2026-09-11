@@ -2654,9 +2654,11 @@ class MysqlClient extends KnexClient {
     // Store constraint name in internal_meta
     this.storeUniqueConstraintName(n, constraintName);
 
-    // Add DROP INDEX and ADD CONSTRAINT to query
-    // Note: MySQL uses DROP INDEX for unique constraints
-    query += this.genQuery(`, DROP INDEX ??`, [constraintName]);
+    // [CE-EE] R1 fix: no unconditional `DROP INDEX ??` here — both call sites
+    // only reach this method when the old column was NOT unique, so the index
+    // cannot exist yet and DROP INDEX throws MySQL error 1091.
+    // Add CONSTRAINT to query
+    // Note: MySQL stores unique constraints as indexes
     query += this.genQuery(`, ADD CONSTRAINT ?? UNIQUE (??)`, [
       constraintName,
       columnName,

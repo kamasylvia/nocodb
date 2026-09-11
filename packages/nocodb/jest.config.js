@@ -5,7 +5,9 @@
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts', 'tsx', 'jsx', 'node'],
   rootDir: 'src',
-  testRegex: '(Integration|Source)\\.spec\\.ts$',
+  // [CE-EE] add 'Fork' bucket: unit tests owned by this fork (upstream CE has no
+  // files matching this regex, CI suites arrive via the ee/ overlay)
+  testRegex: '(Integration|Source|Fork)\\.spec\\.ts$',
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
@@ -35,6 +37,10 @@ module.exports = {
       'ts-jest',
       {
         tsconfig: 'tsconfig.json',
+        // [CE-EE] transpile-only: the legacy ts-jest language service crashes
+        // with TS 5.8 (document registry race); type checking stays with the
+        // rspack/tsc pipeline
+        isolatedModules: true,
       },
     ],
   },

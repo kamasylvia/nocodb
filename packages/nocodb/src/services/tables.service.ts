@@ -61,7 +61,10 @@ import NcConnectionMgrv2 from '~/utils/common/NcConnectionMgrv2';
 import { sanitizeColumnName, validatePayload } from '~/helpers';
 import { MetaTable } from '~/utils/globals';
 import NocoSocket from '~/socket/NocoSocket';
-import { validateUniqueConstraint } from '~/helpers/uniqueConstraintHelpers';
+import {
+  normalizeUniqueConstraintFlag,
+  validateUniqueConstraint,
+} from '~/helpers/uniqueConstraintHelpers';
 import { OperationName } from '~/command-registry/op-names';
 import { TraceCommand } from '~/decorators/trace-command.decorator';
 import { isReplay } from '~/helpers/replayScope';
@@ -1141,9 +1144,25 @@ export class TablesService {
         }),
     );
 
+    // [CE-EE] R3 fix: UUID columns must be forced to unique on NC-DB sources in
+    // the table-create path too, mirroring columnAdd (columns.service UUID gate)
+    for (const column of tableCreatePayLoad.columns) {
+      if (
+        column.uidt === UITypes.UUID &&
+        (source.is_meta || source.is_local)
+      ) {
+        column.unique = true;
+        // [CE-EE] R4 fix: mirror columnAdd — UUID is DB-generated
+        // (gen_random_uuid()), so reject user-supplied values here as well
+        column.readonly = true;
+      }
+    }
+
     // Validate unique constraints for columns during table creation
     // Do this AFTER getColumnPropsFromUIDT but use preserved cdf value
     for (const column of tableCreatePayLoad.columns) {
+      // [CE-EE] R1 fix: strict boolean normalization for the unique flag
+      column.unique = normalizeUniqueConstraintFlag(context, column.unique);
       if (column.unique) {
         // Use the preserved cdf value from the column object
         const cdfValue = column.cdf;
