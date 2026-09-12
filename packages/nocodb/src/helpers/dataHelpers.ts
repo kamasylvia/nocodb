@@ -46,6 +46,13 @@ export async function getViewAndModelByAliasOrId(
 ) {
   const base = await Base.getWithInfoByTitleOrId(context, param.baseName);
 
+  // [CE-EE] F07 R3 fix: base can come back undefined when the calling job's
+  // auth context was mangled mid-run — surface a clean 404 instead of a
+  // TypeError crashing the whole export/import job silently
+  if (!base) {
+    NcError.baseNotFound(param.baseName);
+  }
+
   const model = await Model.getByAliasOrId(context, {
     base_id: base.id,
     aliasOrId: param.tableName,

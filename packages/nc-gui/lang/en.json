@@ -5799,7 +5799,8 @@
       "baseSnapshotCreate": "New Snapshot",
       "baseSnapshotDeleteTitle": "Delete snapshot?",
       "baseSnapshotDeleteDescription": "Snapshot \"{title}\" and its copy base will be permanently deleted.",
-      "baseSnapshotsRestoreHint": "Restoring duplicates the snapshot back into the workspace as a new base — your working base is never modified."
+      "baseSnapshotsRestoreHint": "Restoring duplicates the snapshot back into the workspace as a new base — your working base is never modified.",
+      "dashboardEmpty": "No widgets yet — widget rendering lands with the widget layer."
     },
     "error": {
       "interfaceButtonFieldMissing": "This button refers to a field that no longer exists",

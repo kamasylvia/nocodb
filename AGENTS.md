@@ -9,13 +9,13 @@
 
 | # | 功能 | EE feature flag (`PlanFeatureTypes`) | 状态 |
 |---|---|---|---|
-| F01 | Unique values only | `FEATURE_UNIQUE` | 待做 |
+| F01 | Unique values only | `FEATURE_UNIQUE` | 代码完成(commit 744d3161)，会审收敛中 |
 | F02 | Edit field permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | 待做 |
 | F03 | Data permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | 待做 |
 | F04 | Manage Syncs | `FEATURE_SYNC` | 待做 |
-| F05 | Variables (base variables) | `FEATURE_BASE_VARIABLES` | 待做 |
+| F05 | Variables (base variables) | `FEATURE_BASE_VARIABLES` | **pass**（commit 6ab23da0） |
 | F06 | Docs Permissions | `FEATURE_DOCUMENT_PERMISSIONS` | 待做 |
-| F07 | Manage Snapshots | `FEATURE_SCHEDULED_SNAPSHOTS` | 待做 |
+| F07 | Manage Snapshots | `FEATURE_SCHEDULED_SNAPSHOTS` | 代码完成，会审收敛中 |
 | F08 | Base Type - Private | `FEATURE_PRIVATE_BASES` | 待做 |
 | F09 | Sync data (table/custom sync) | `FEATURE_TABLE_SYNC` / `FEATURE_CUSTOM_SYNC` | 待做 |
 | F10 | Create Dashboard | `LIMIT_DASHBOARD_PER_WORKSPACE` | 待做 |
@@ -27,12 +27,19 @@
 核心 gating 文件：
 
 - 前端总开关：`packages/nc-gui/utils/ncUtils.ts:1` — `isEeUI = false`（编译期常量，勿全局翻转，会激活大量依赖 EE 后端的 UI 路径）
-- 前端 paywall 中枢：`packages/nc-gui/composables/useEeConfig.ts` — 各 feature gate（`blockUnique` / `blockSync` / `blockSnapshots` / `blockBaseVariables` / `blockPrivateBases` / `blockDocumentPermissions` / `blockAddNewDashboard` …）全部硬编码 blocked；升级弹窗回调为 no-op
+- 前端 paywall 中枢：`packages/nc-gui/composables/useEeConfig.ts` — 各 feature gate（`blockSync` / `blockPrivateBases` / `blockDocumentPermissions` / `blockAddNewDashboard` …）硬编码 blocked；升级弹窗回调为 no-op。**本 fork 已解 gate**：`blockUnique`（F01）/ `blockBaseVariables`（F05）/ `blockSnapshots`（F07）= false
 - stub UI 组件（渲染 `<NcSpanHidden />` 空壳）：`packages/nc-gui/components/dashboard/settings/base/Snapshots.vue`、`.../base/Variables/index.vue`、`packages/nc-gui/components/project/Sync/index.vue`、`.../settings/Permissions.vue`、`.../settings/DocsPermissions.vue` 等
 - stub 后端 model：`src/models/Permission.ts`（`list()→[]`、`isAllowed()→true`）、`src/models/BaseVariable.ts`、`src/models/Dashboard.ts`、`src/db/BaseModelSqlv2.ts:10407`（`checkPermission` no-op hook）
 - **DB schema 已就绪**：snapshots / base variables / permissions / dashboards / sync configs 的表全部在 CE migrations（`src/meta/migrations/v0/`）里，多数功能只需补后端 service/controller + 解前端 stub
 
 **改码约定**：所有本 fork 的修改处加行尾注释 `// [CE-EE]` 标记，便于对照上游合并。
+
+### 2.1 F07 快照设计（fork 决策）
+
+- 快照 = 用既有 DuplicateBase job 对 base 做**异步完整副本**（副本是普通 base，title 前缀 `Snapshot <ts> of`），登记在 `nc_snapshots`（status: processing→completed/error 按副本 base 派生）。**注意：副本是活的 base，非时点冻结**——对副本的后续修改会进入 restore 产物（fork 限制，EE 为冻结快照）
+- restore = 对快照副本再复制为**新 base**「`<orig> (restored)`」，不原地覆盖工作 base
+- 删快照 = `Base.softDelete` 副本（Base.delete 会触上游 "Cannot delete first source" 守卫，勿用）+ 删登记行；副本进 trash（平台统一语义）
+- 加密：`NC_CONNECTION_ENCRYPT_KEY` 缺失时模型层静默明文——F05 service 层有守卫（拒 secret 物料写入）；F07 快照不复制 base variables（duplicateBase 无此 option），无 secret 物料通道。dev key 由 `.work/ee-ce/dev-backend.sh` 注入
 
 ## 3. 开发环境
 

@@ -3992,7 +3992,8 @@
       "baseSnapshotCreate": "新建快照",
       "baseSnapshotDeleteTitle": "删除快照？",
       "baseSnapshotDeleteDescription": "快照「{title}」及其副本 Base 将被永久删除。",
-      "baseSnapshotsRestoreHint": "恢复会把快照复制为新 Base，当前工作 Base 不会被改动。"
+      "baseSnapshotsRestoreHint": "恢复会把快照复制为新 Base，当前工作 Base 不会被改动。",
+      "dashboardEmpty": "暂无小组件，小组件渲染随后续版本落地。"
     },
     "error": {
       "failedToCreateSync": "创建同步失败",

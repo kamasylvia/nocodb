@@ -144,6 +144,12 @@ const rolePermissions = {
       baseSnapshotCreate: true,
       baseSnapshotRestore: true,
       baseSnapshotDelete: true,
+
+      // [CE-EE] F10: dashboards management (creator+ only)
+      dashboardList: true,
+      dashboardCreate: true,
+      dashboardUpdate: true,
+      dashboardDelete: true,
     },
   },
   [ProjectRoles.EDITOR]: {

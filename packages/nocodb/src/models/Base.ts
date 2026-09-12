@@ -8,6 +8,7 @@ import {
   BaseUser,
   BaseVariable,
   CustomUrl,
+  Dashboard,
   DataReflection,
   Extension,
   FileReference,
@@ -456,6 +457,9 @@ export default class Base implements BaseType {
     // [CE-EE] F07 R2 fix: clean up snapshot registry rows for this base
     await BaseSnapshot.cleanupByBaseIdWithCopies(context, baseId, ncMeta);
 
+    // [CE-EE] F10: clean up dashboards for this base
+    await Dashboard.deleteByBaseId(context, baseId, ncMeta);
+
     cleanCommandPaletteCache(context.workspace_id).catch(() => {
       logger.error('Failed to clean command palette cache');
     });
@@ -705,6 +709,9 @@ export default class Base implements BaseType {
 
     // [CE-EE] F07 R2 fix: clean up snapshot registry rows referencing this base
     await BaseSnapshot.cleanupByBaseIdWithCopies(context, baseId, ncMeta);
+
+    // [CE-EE] F10: clean up dashboards for this base
+    await Dashboard.deleteByBaseId(context, baseId, ncMeta);
 
     return await ncMeta.metaDelete(
       context.workspace_id,

@@ -32,6 +32,7 @@ const { isAiFeaturesEnabled } = useNocoAi()
 
 const {
   isEEFeatureBlocked,
+  blockAddNewDashboard, /* [CE-EE] F10 */
   showEEFeatures,
   showUpgradeToUseTimelineView,
   showUpgradeToUseGanttView,
@@ -495,7 +496,8 @@ const hasDocumentCreateAccess = computed(() => {
             </NcSubMenu>
           </NcTooltip>
 
-          <template v-if="showEEFeatures">
+          <!-- [CE-EE] F10: fork ships dashboards — gate on feature flag, not paywall visibility -->
+          <template v-if="!blockAddNewDashboard && !isEEFeatureBlocked">
             <NcTooltip
               :title="
                 !isDataTab

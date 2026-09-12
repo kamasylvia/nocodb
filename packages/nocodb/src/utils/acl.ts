@@ -276,6 +276,12 @@ export const permissionScopes = {
     'baseSnapshotRestore',
     'baseSnapshotDelete',
 
+    // [CE-EE] F10: dashboards management (creator+ only)
+    'dashboardList',
+    'dashboardCreate',
+    'dashboardUpdate',
+    'dashboardDelete',
+
     // Jobs
     'jobList',
 

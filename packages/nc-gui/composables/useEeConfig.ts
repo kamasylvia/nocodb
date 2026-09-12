@@ -73,7 +73,8 @@ export const useEeConfig = createSharedComposable(() => {
 
   const blockPrivateBases = computed(() => true)
 
-  const blockAddNewDashboard = computed(() => true)
+  // [CE-EE] F10: fork ships dashboards — unblocked
+  const blockAddNewDashboard = computed(() => false)
 
   // Interfaces are EE-only — every gate stays blocked in CE.
   const hideInterfaces = computed(() => true)

@@ -47,6 +47,7 @@ import {
   Hook,
   Integration,
   Model,
+  Dashboard,
   Sort,
   Source,
   SyncSource,
@@ -189,6 +190,8 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
       const filterId = params.filterId || query.filterId;
       const filterParentId = params.filterParentId || query.filterParentId;
       const widgetId = params.widgetId || query.widgetId;
+      // [CE-EE] F10: dashboard routes carry :dashboardId on meta paths
+      const dashboardId = params.dashboardId || query.dashboardId;
       const sectionId = params.sectionId || query.sectionId;
       const baseSectionId = params.baseSectionId || query.baseSectionId;
       const automationSectionId =
@@ -402,6 +405,16 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
         if (!widget) {
           NcError.genericNotFound('Widget', widgetId);
         }
+      } else if (dashboardId) {
+        // [CE-EE] F10: resolve dashboard to populate base context
+        const dashboard = await Dashboard.get(context, dashboardId);
+
+        if (!dashboard) {
+          NcError.genericNotFound('Dashboard', dashboardId);
+        }
+
+        req.ncBaseId = dashboard.base_id;
+        context.base_id = dashboard.base_id;
       } else if (sectionId) {
         const section = await ViewSection.get(context, sectionId);
 
