@@ -2,6 +2,8 @@ import type { DashboardType } from 'nocodb-sdk'
 
 export const useDashboardStore = defineStore('dashboard', () => {
   // State
+  const { $api } = useNuxtApp()
+
   const dashboards = ref(new Map<string, DashboardType>())
   const router = useRouter()
   const route = router.currentRoute
@@ -21,7 +23,9 @@ export const useDashboardStore = defineStore('dashboard', () => {
   }
 
   const loadDashboard = async (baseId: string, dashboardId: string) => {
-    const res = await $api.instance.get(`/api/v2/meta/bases/${baseId}/dashboards/${dashboardId}`)
+    const res = await $api.instance.get(
+      `/api/v2/meta/bases/${baseId}/dashboards/${dashboardId}`,
+    )
     const d = res.data
     dashboards.value.set(d.id, d)
     return d
@@ -33,8 +37,15 @@ export const useDashboardStore = defineStore('dashboard', () => {
     return res.data
   }
 
-  const updateDashboard = async (baseId: string, dashboardId: string, body: { title?: string; description?: string }) => {
-    const res = await $api.instance.patch(`/api/v2/meta/bases/${baseId}/dashboards/${dashboardId}`, body)
+  const updateDashboard = async (
+    baseId: string,
+    dashboardId: string,
+    body: { title?: string; description?: string },
+  ) => {
+    const res = await $api.instance.patch(
+      `/api/v2/meta/bases/${baseId}/dashboards/${dashboardId}`,
+      body,
+    )
     dashboards.value.set(res.data.id, res.data)
     return res.data
   }
@@ -47,7 +58,8 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   const openDashboard = async (dashboardId: string) => {
     const wsId = route.value.params.typeOrId as string
-    await navigateTo(`/${wsId}/${dashboardId}`)
+    const baseId = route.value.params.baseId as string
+    await navigateTo(`/${wsId}/${baseId}/dashboard/${dashboardId}`)
   }
 
   const duplicateDashboard = async (..._params: any) => null
@@ -56,20 +68,25 @@ export const useDashboardStore = defineStore('dashboard', () => {
     const baseId = params?.baseId || (route.value.params.baseId as string)
     if (!baseId) return
 
-    // [CE-EE] F10 minimal: create with a default title (Dashboard / Dashboard 2 / ...)
-    // — title editing lands with the dashboard page
-    const n = dashboards.value.size + 1
-    const dashboard = await createDashboard(baseId, {
-      title: `Dashboard ${n}`,
-    })
-    message.success('Dashboard created')
-    await openDashboard(dashboard.id)
+    // [CE-EE] F10: default title avoids the per-base unique-title constraint;
+    // pick the first non-colliding "Dashboard N" instead of a fixed count
+    let n = 1
+    const titles = new Set([...dashboards.value.values()].map((d) => d.title))
+    while (titles.has(`Dashboard ${n}`)) n++
+    const title = `Dashboard ${n}`
+
+    try {
+      const dashboard = await createDashboard(baseId, { title })
+      message.success('Dashboard created')
+      await navigateTo(`/${route.value.params.typeOrId}/${baseId}/dashboard/${dashboard.id}`)
+    } catch (e: any) {
+      message.error(await extractSdkResponseErrorMsg(e))
+    }
   }
 
   return {
     // State
     dashboards,
-    activeDashboard,
 
     // Getters
     activeBaseDashboards,

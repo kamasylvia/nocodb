@@ -35,10 +35,7 @@ export class DashboardsController {
     return this.dashboardsService.list(context, baseId);
   }
 
-  @Get([
-    '/api/v2/meta/bases/:baseId/dashboards/:dashboardId',
-    '/api/v2/meta/dashboards/:dashboardId',
-  ])
+  @Get(['/api/v2/meta/bases/:baseId/dashboards/:dashboardId'])
   @HttpCode(200)
   @Acl('dashboardList')
   async get(
@@ -61,10 +58,7 @@ export class DashboardsController {
     return this.dashboardsService.create(context, baseId, req, body);
   }
 
-  @Patch([
-    '/api/v2/meta/bases/:baseId/dashboards/:dashboardId',
-    '/api/v2/meta/dashboards/:dashboardId',
-  ])
+  @Patch(['/api/v2/meta/bases/:baseId/dashboards/:dashboardId'])
   @Acl('dashboardUpdate')
   async update(
     @TenantContext() context: NcContext,
@@ -80,10 +74,7 @@ export class DashboardsController {
     );
   }
 
-  @Delete([
-    '/api/v2/meta/bases/:baseId/dashboards/:dashboardId',
-    '/api/v2/meta/dashboards/:dashboardId',
-  ])
+  @Delete(['/api/v2/meta/bases/:baseId/dashboards/:dashboardId'])
   @Acl('dashboardDelete')
   async delete(
     @TenantContext() context: NcContext,

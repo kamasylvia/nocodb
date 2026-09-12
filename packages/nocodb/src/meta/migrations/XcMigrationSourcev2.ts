@@ -77,6 +77,7 @@ import * as nc_086_dashboards_widgets from '~/meta/migrations/v2/nc_086_dashboar
 import * as nc_087_widget_error from '~/meta/migrations/v2/nc_087_widget_error';
 import * as nc_088_add_sso_client_to_api_tokens from '~/meta/migrations/v2/nc_088_add_sso_client_to_api_tokens';
 import * as nc_089_dashboard_sharing from '~/meta/migrations/v2/nc_089_dashboard_sharing';
+import * as nc_20260913_dashboard_title_unique from '~/meta/migrations/v2/nc_20260913_dashboard_title_unique';
 import * as nc_090_add_is_new_user_to_users from '~/meta/migrations/v2/nc_090_add_is_new_user_to_users';
 import * as nc_091_unify_model from '~/meta/migrations/v2/nc_091_unify_model';
 import * as nc_092_composite_pk from '~/meta/migrations/v2/nc_092_composite_pk';
@@ -181,6 +182,7 @@ export default class XcMigrationSourcev2 {
       'nc_096_deprecate_unused',
       'nc_097_unify_schema',
       'nc_098_default_workspace',
+      'nc_20260913_dashboard_title_unique',
     ]);
   }
 

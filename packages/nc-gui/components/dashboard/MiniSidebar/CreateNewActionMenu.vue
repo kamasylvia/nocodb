@@ -496,8 +496,9 @@ const hasDocumentCreateAccess = computed(() => {
             </NcSubMenu>
           </NcTooltip>
 
-          <!-- [CE-EE] F10: fork ships dashboards — gate on feature flag, not paywall visibility -->
-          <template v-if="!blockAddNewDashboard && !isEEFeatureBlocked">
+          <!-- [CE-EE] F10: fork ships dashboards — gate on feature flag only
+               (isEEFeatureBlocked is a CE-true total switch and would hide the entry) -->
+          <template v-if="!blockAddNewDashboard">
             <NcTooltip
               :title="
                 !isDataTab

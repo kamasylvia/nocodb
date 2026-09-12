@@ -68,6 +68,14 @@ export class DashboardsService {
     dashboardId: string,
     body: { title?: string; description?: string },
   ) {
+    // [CE-EE] F10 R1: description must be a string (or null to clear)
+    if (
+      body?.description !== undefined &&
+      body.description !== null &&
+      typeof body.description !== 'string'
+    ) {
+      NcError.badRequest('Dashboard description must be a string');
+    }
     const dashboard = await this.getDashboardWithBaseCheck(
       context,
       baseId,

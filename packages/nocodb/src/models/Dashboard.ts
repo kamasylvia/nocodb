@@ -115,6 +115,11 @@ export default class Dashboard {
       insertObj,
     );
 
+    // [CE-EE] F10 R1: materialize the cached object first, then append its
+    // key to the scope list (appending first leaves an empty cached value
+    // that silently invalidates the whole list — same fix as BaseSnapshot)
+    const res = await this.get(context, id);
+
     await NocoCache.appendToList(
       context,
       CacheScope.DASHBOARD,
@@ -122,7 +127,7 @@ export default class Dashboard {
       `${CacheScope.DASHBOARD}:${id}`,
     );
 
-    return this.get(context, id);
+    return res;
   }
 
   public static async update(
