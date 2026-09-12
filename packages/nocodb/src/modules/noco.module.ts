@@ -36,6 +36,8 @@ import { AttachmentsSecureController } from '~/controllers/attachments-secure.co
 import { AttachmentsController } from '~/controllers/attachments.controller';
 // [CE-EE] F05: base variables meta API
 import { BaseVariablesController } from '~/controllers/base-variables.controller';
+// [CE-EE] F07: base snapshots meta API
+import { BaseSnapshotsController } from '~/controllers/base-snapshots.controller';
 import { BaseUsersController } from '~/controllers/base-users.controller';
 import { BasesController } from '~/controllers/bases.controller';
 import { CachesController } from '~/controllers/caches.controller';
@@ -77,6 +79,8 @@ import { AuditsService } from '~/services/audits.service';
 import { BaseUsersService } from '~/services/base-users/base-users.service';
 // [CE-EE] F05: base variables meta API
 import { BaseVariablesService } from '~/services/base-variables.service';
+// [CE-EE] F07: base snapshots meta API
+import { BaseSnapshotsService } from '~/services/base-snapshots.service';
 import { BasesService } from '~/services/bases.service';
 import { CachesService } from '~/services/caches.service';
 import { CalendarsService } from '~/services/calendars.service';
@@ -229,6 +233,7 @@ export const nocoModuleMetadata = {
           BaseUsersController,
           BasesController,
           BaseVariablesController,
+          BaseSnapshotsController,
           PublicMetasController,
           ViewsController,
           ViewColumnsController,
@@ -319,6 +324,8 @@ export const nocoModuleMetadata = {
     BaseMembersV3Service,
     // [CE-EE] F05
     BaseVariablesService,
+    // [CE-EE] F07
+    BaseSnapshotsService,
     BasesService,
     PublicMetasService,
     ViewsService,

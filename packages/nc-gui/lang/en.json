@@ -5793,7 +5793,13 @@
       "baseVariablesEmpty": "No variables yet. Add one to get started.",
       "baseVariableKeyFormat": "UPPER_SNAKE_CASE only (e.g. MY_VARIABLE). Immutable after creation.",
       "baseVariableDeleteTitle": "Delete variable?",
-      "baseVariableDeleteDescription": "Variable {key} will be permanently deleted."
+      "baseVariableDeleteDescription": "Variable {key} will be permanently deleted.",
+      "baseSnapshotsSubtitle": "Point-in-time copies of this base (schema + data). Creation runs in the background.",
+      "baseSnapshotsEmpty": "No snapshots yet. Create one to capture the current state of this base.",
+      "baseSnapshotCreate": "New Snapshot",
+      "baseSnapshotDeleteTitle": "Delete snapshot?",
+      "baseSnapshotDeleteDescription": "Snapshot \"{title}\" and its copy base will be permanently deleted.",
+      "baseSnapshotsRestoreHint": "Restoring duplicates the snapshot back into the workspace as a new base — your working base is never modified."
     },
     "error": {
       "interfaceButtonFieldMissing": "This button refers to a field that no longer exists",
@@ -6153,7 +6159,10 @@
       "planChangeReverted": "Scheduled plan change reverted. Your current plan continues unchanged.",
       "baseVariableCreated": "Variable created",
       "baseVariableUpdated": "Variable updated",
-      "baseVariableDeleted": "Variable deleted"
+      "baseVariableDeleted": "Variable deleted",
+      "baseSnapshotCreated": "Snapshot creation started",
+      "baseSnapshotRestored": "Snapshot restored as a new base",
+      "baseSnapshotDeleted": "Snapshot deleted"
     },
     "subText": {
       "startFromScratch": "Start from scratch.",

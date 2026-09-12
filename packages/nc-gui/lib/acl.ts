@@ -138,6 +138,12 @@ const rolePermissions = {
       baseVariableCreate: true,
       baseVariableUpdate: true,
       baseVariableDelete: true,
+
+      // [CE-EE] F07: base snapshots management (creator+ only)
+      baseSnapshotList: true,
+      baseSnapshotCreate: true,
+      baseSnapshotRestore: true,
+      baseSnapshotDelete: true,
     },
   },
   [ProjectRoles.EDITOR]: {

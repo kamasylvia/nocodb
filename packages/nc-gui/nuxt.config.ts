@@ -156,6 +156,16 @@ export default defineNuxtConfig({
   // disabling devtools since causing some significant performance issues when browser console open in development mode
   devtools: { enabled: false },
 
+  // [CE-EE] F07: allow ephemeral trycloudflare hosts so remote browser
+  // automation (camoufox MCP / browser-act) can drive the dev server.
+  // Applied via hook because nuxt may overwrite vite.server wholesale.
+  hooks: {
+    'vite:extendConfig'(config: any) {
+      config.server = config.server || {}
+      config.server.allowedHosts = true // dev-only: wider than trycloudflare, acceptable for local dev
+    },
+  },
+
   vite: {
     worker: {
       format: 'es',

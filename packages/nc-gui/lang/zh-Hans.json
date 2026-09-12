@@ -3986,7 +3986,13 @@
       "baseVariablesEmpty": "暂无变量，点击右上角添加。",
       "baseVariableKeyFormat": "仅允许 UPPER_SNAKE_CASE（如 MY_VARIABLE），创建后不可修改。",
       "baseVariableDeleteTitle": "删除变量？",
-      "baseVariableDeleteDescription": "变量 {key} 将被永久删除。"
+      "baseVariableDeleteDescription": "变量 {key} 将被永久删除。",
+      "baseSnapshotsSubtitle": "当前 Base 的时点副本（结构 + 数据），创建在后台进行。",
+      "baseSnapshotsEmpty": "暂无快照，创建一个以保存当前状态。",
+      "baseSnapshotCreate": "新建快照",
+      "baseSnapshotDeleteTitle": "删除快照？",
+      "baseSnapshotDeleteDescription": "快照「{title}」及其副本 Base 将被永久删除。",
+      "baseSnapshotsRestoreHint": "恢复会把快照复制为新 Base，当前工作 Base 不会被改动。"
     },
     "error": {
       "failedToCreateSync": "创建同步失败",
@@ -4295,7 +4301,10 @@
       "defaultRoleUpdated": "成功更新默认角色",
       "baseVariableCreated": "变量已创建",
       "baseVariableUpdated": "变量已更新",
-      "baseVariableDeleted": "变量已删除"
+      "baseVariableDeleted": "变量已删除",
+      "baseSnapshotCreated": "快照创建已开始",
+      "baseSnapshotRestored": "快照已恢复为新 Base",
+      "baseSnapshotDeleted": "快照已删除"
     },
     "subText": {
       "startFromScratch": "从头开始。",

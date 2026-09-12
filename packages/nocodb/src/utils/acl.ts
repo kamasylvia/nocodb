@@ -270,6 +270,12 @@ export const permissionScopes = {
     'baseVariableUpdate',
     'baseVariableDelete',
 
+    // [CE-EE] F07: base snapshots management (creator+ only)
+    'baseSnapshotList',
+    'baseSnapshotCreate',
+    'baseSnapshotRestore',
+    'baseSnapshotDelete',
+
     // Jobs
     'jobList',
 

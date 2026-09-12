@@ -423,7 +423,8 @@ export const useEeConfig = createSharedComposable(() => {
 
   const showUpgradeToUseFormGridLayout = (..._args: any[]) => {}
 
-  const blockSnapshots = computed(() => true)
+  // [CE-EE] F07 Manage Snapshots: implemented in this fork, unblocked
+  const blockSnapshots = computed(() => false)
 
   const showUpgradeToUseSnapshots = (..._args: any[]) => {}
 

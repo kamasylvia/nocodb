@@ -39,6 +39,7 @@ const {
   hideInterfaces,
   blockWorkflows,
   blockBaseVariables /* [CE-EE] F05 */,
+  blockSnapshots, /* [CE-EE] F07 */
 } = useEeConfig()
 
 const currentBase = computedAsync(async () => {
@@ -191,7 +192,7 @@ watch(
         projectPageTab.value = 'variables'
       } else if (newVal === 'interface-members' && showEEFeatures.value && !hideInterfaces.value) {
         projectPageTab.value = 'interface-members'
-      } else if (newVal === 'snapshots' && showEEFeatures.value) {
+      } else if (newVal === 'snapshots' && !blockSnapshots.value && isUIAllowed('baseSnapshotList')) { /* [CE-EE] F07 */
         projectPageTab.value = 'snapshots'
       } else if (newVal === 'record-trash' && showEEFeatures.value) {
         projectPageTab.value = 'record-trash'
@@ -636,8 +637,9 @@ watch(
             <DashboardSettingsBaseTrash />
           </div>
         </a-tab-pane>
+        <!-- [CE-EE] F07: gate on the fork feature flag + creator role -->
         <a-tab-pane
-          v-if="isUIAllowed('baseMiscSettings') && isUIAllowed('manageSnapshot') && base.id && !isMobileMode && showEEFeatures"
+          v-if="!blockSnapshots && isUIAllowed('baseSnapshotList') && base.id && !isMobileMode"
           key="snapshots"
         >
           <template #tab>

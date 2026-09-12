@@ -31,6 +31,7 @@ const {
   blockTrashSettings,
   blockBaseVariables,
   isEEFeatureBlocked,
+  blockSnapshots, /* [CE-EE] F07 */
   showEEFeatures,
   hideInterfaces,
   blockWorkflows,
@@ -45,7 +46,8 @@ const navigateToBaseSettings = (page: string) => {
   if (page === 'docs-permissions' && showUpgradeToUseDocumentPermissions({ triggerSource: 'base-settings-doc-permissions' }))
     return
   if (page === 'syncs' && showUpgradeToUseSync({ triggerSource: 'base-settings-sync' })) return
-  if (page === 'snapshots' && isEEFeatureBlocked.value) {
+  // [CE-EE] F07
+  if (page === 'snapshots' && blockSnapshots.value) {
     showUpgradeToUseSnapshots({ triggerSource: 'base-settings-snapshots' })
     return
   }
@@ -257,10 +259,8 @@ onMounted(() => {
     </NcSidebarMenuItem>
     <NcSidebarMenuItem
       v-if="
-        isEeUI &&
-        showEEFeatures &&
-        isUIAllowed('baseMiscSettings', { roles: effectiveRoles }) &&
-        isUIAllowed('manageSnapshot', { roles: effectiveRoles }) &&
+        !blockSnapshots /* [CE-EE] F07 */ &&
+        isUIAllowed('baseSnapshotList', { roles: effectiveRoles }) &&
         !isMobileMode
       "
       v-e="['c:settings:base:snapshots']"
