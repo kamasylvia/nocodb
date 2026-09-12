@@ -307,7 +307,8 @@ export async function handleUniqueConstraintError({
 
         // Extract value from error detail
         const valueMatch = errorDetail.match(
-          /Key\s*\([^)]*\)\s*=\s*\(([^)]+)\)/,
+          // [CE-EE] F01: greedy capture — values may contain ')'
+          /Key\s*\([^)]*\)\s*=\s*\((.+)\)/,
         );
         if (valueMatch) {
           value = valueMatch[1].trim().replace(/^["']|["']$/g, '');
@@ -642,7 +643,8 @@ export async function handleUniqueConstraintError({
 
         // Extract value from error detail
         const valueMatch = errorDetail.match(
-          /Key\s*\([^)]*\)\s*=\s*\(([^)]+)\)/,
+          // [CE-EE] F01: greedy capture — values may contain ')'
+          /Key\s*\([^)]*\)\s*=\s*\((.+)\)/,
         );
         if (valueMatch) {
           value = valueMatch[1].trim().replace(/^["']|["']$/g, '');
@@ -872,7 +874,8 @@ export async function handleUniqueConstraintError({
     errorMessage;
   // Match pattern: Key (column_part)=(value_part) where value_part is captured
   // This handles both quoted and unquoted column names: Key ("Text_7")=(a) or Key (Text_7)=(a)
-  const pgValueMatch = detailMessage.match(/Key\s*\([^)]*\)\s*=\s*\(([^)]+)\)/);
+  // [CE-EE] F01: greedy capture — values may contain ')'
+  const pgValueMatch = detailMessage.match(/Key\s*\([^)]*\)\s*=\s*\((.+)\)/);
   if (pgValueMatch) {
     // Extract value and remove surrounding single or double quotes
     value = pgValueMatch[1].trim().replace(/^["']|["']$/g, '');
