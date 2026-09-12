@@ -53,6 +53,7 @@ const navigateToBaseSettings = (page: string) => {
     showUpgradeToUseTrashSettings({ triggerSource: 'base-settings-trash' })
     return
   }
+  // [CE-EE] F05
   if (page === 'variables' && blockBaseVariables.value) {
     showUpgradeToUseBaseVariables({ triggerSource: 'base-settings-base-variables' })
     return
@@ -239,7 +240,7 @@ onMounted(() => {
       {{ $t('labels.aiSkills') }}
     </NcSidebarMenuItem>
     <NcSidebarMenuItem
-      v-if="!isMobileMode && showEEFeatures"
+      v-if="!isMobileMode && !blockBaseVariables && isUIAllowed('baseVariableList') /* [CE-EE] F05 */"
       v-e="['c:settings:base:variables']"
       icon="ncSettings"
       data-testid="base-variables"

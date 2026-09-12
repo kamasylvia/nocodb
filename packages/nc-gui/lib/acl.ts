@@ -132,6 +132,12 @@ const rolePermissions = {
       // Documents — creators can create and delete documents
       documentCreate: true,
       documentDelete: true,
+
+      // [CE-EE] F05: base variables management (creator+ only)
+      baseVariableList: true,
+      baseVariableCreate: true,
+      baseVariableUpdate: true,
+      baseVariableDelete: true,
     },
   },
   [ProjectRoles.EDITOR]: {

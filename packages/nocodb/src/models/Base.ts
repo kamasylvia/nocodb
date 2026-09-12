@@ -5,6 +5,7 @@ import type { DB_TYPES } from '~/utils/globals';
 import type { NcContext } from '~/interface/config';
 import {
   BaseUser,
+  BaseVariable,
   CustomUrl,
   DataReflection,
   Extension,
@@ -446,6 +447,11 @@ export default class Base implements BaseType {
 
     await FileReference.bulkDelete(context, { base_id: baseId }, ncMeta);
 
+    // [CE-EE] F05 R2 fix: base deletion is soft-delete driven — clean up base
+    // variables here (Base.delete is never invoked for this flow), otherwise
+    // orphan rows including encrypted secrets accumulate
+    await BaseVariable.deleteByBaseId(context, baseId, ncMeta);
+
     cleanCommandPaletteCache(context.workspace_id).catch(() => {
       logger.error('Failed to clean command palette cache');
     });
@@ -688,6 +694,10 @@ export default class Base implements BaseType {
     await FileReference.bulkDelete(context, { base_id: baseId }, ncMeta);
 
     await Extension.deleteByBaseId(context, baseId, ncMeta);
+
+    // [CE-EE] F05 R1 fix: clean up base variables so deleted bases don't
+    // leave orphan rows (including encrypted secrets) behind
+    await BaseVariable.deleteByBaseId(context, baseId, ncMeta);
 
     return await ncMeta.metaDelete(
       context.workspace_id,

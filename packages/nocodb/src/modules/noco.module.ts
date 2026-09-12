@@ -34,6 +34,8 @@ import { ApiDocsController } from '~/controllers/api-docs/api-docs.controller';
 import { ApiTokensController } from '~/controllers/api-tokens.controller';
 import { AttachmentsSecureController } from '~/controllers/attachments-secure.controller';
 import { AttachmentsController } from '~/controllers/attachments.controller';
+// [CE-EE] F05: base variables meta API
+import { BaseVariablesController } from '~/controllers/base-variables.controller';
 import { BaseUsersController } from '~/controllers/base-users.controller';
 import { BasesController } from '~/controllers/bases.controller';
 import { CachesController } from '~/controllers/caches.controller';
@@ -73,6 +75,8 @@ import { ApiTokensService } from '~/services/api-tokens.service';
 import { AttachmentsService } from '~/services/attachments.service';
 import { AuditsService } from '~/services/audits.service';
 import { BaseUsersService } from '~/services/base-users/base-users.service';
+// [CE-EE] F05: base variables meta API
+import { BaseVariablesService } from '~/services/base-variables.service';
 import { BasesService } from '~/services/bases.service';
 import { CachesService } from '~/services/caches.service';
 import { CalendarsService } from '~/services/calendars.service';
@@ -224,6 +228,7 @@ export const nocoModuleMetadata = {
           PluginsController,
           BaseUsersController,
           BasesController,
+          BaseVariablesController,
           PublicMetasController,
           ViewsController,
           ViewColumnsController,
@@ -312,6 +317,8 @@ export const nocoModuleMetadata = {
     PluginsService,
     BaseUsersService,
     BaseMembersV3Service,
+    // [CE-EE] F05
+    BaseVariablesService,
     BasesService,
     PublicMetasService,
     ViewsService,

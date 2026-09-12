@@ -66,7 +66,8 @@
 - 后端 dev 编译 ~20s；type-check ~2min 不阻塞启动；`/` 404 是正常（无前端 bundle），API 走 :8080。
 - ts-jest legacy compiler 与 TS 5.8 有 document-registry 崩溃 → jest.config 已配 `isolatedModules: true`（transpile-only；类型检查走 `npx tsc --noEmit`，jest 不查型）。
 - Infisical CLI `infisical login` 必须显式 `--domain "$INFISICAL_URL"`，缺参会 Invalid credentials。
-- 上游遗留测试噪音（非 fork 引入，勿误判为 fork error）：nc-gui 全量 vitest 的 `pwa-self-destroying.test.ts`（import 已删的 pwa.config）必失败；`formula-url-xss` 并发抖动（单跑过）。跑定向测试文件即可避开。
+- 上游遗留测试噪音（非 fork 引入，勿误判为 fork error）：nc-gui 全量 vitest 的 `pwa-self-destroying.test.ts`（import 已删的 pwa.config）必失败；`formula-url-xss` 并发抖动（单跑过）。跑定向测试文件即可避开（`packages/nc-gui/vitest.config.ts` 已建，裸跑 `npx vitest run <file>` 可用）。
+- `NC_CONNECTION_ENCRYPT_KEY`：secret 型 base variables（及连接 config 加密）依赖此 env；缺失时模型层会**静默明文落库**。dev 由 `.work/ee-ce/dev-backend.sh` 注入 dev key；F05 service 层有守卫（缺 key 拒建 secret，400）。
 
 ## 4. 工作流（长程任务协议）
 

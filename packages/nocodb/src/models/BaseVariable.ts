@@ -109,7 +109,11 @@ export default class BaseVariable implements BaseVariableType {
       );
 
       if (data) {
-        NocoCache.set(
+        // [CE-EE] F05 R2 fix: persist the raw (encrypted) row before any
+        // decryption — the previous code mutated the same object reference
+        // in place, so the cache ended up holding decrypted secrets and the
+        // next cache hit double-decrypted them into an empty string.
+        await NocoCache.set(
           context,
           `${CacheScope.BASE_VARIABLE}:${variableId}`,
           data,
@@ -118,7 +122,8 @@ export default class BaseVariable implements BaseVariableType {
     }
 
     if (data) {
-      data = BaseVariable.prepareForRead(data);
+      // decrypt a copy — never mutate the cached object
+      data = BaseVariable.prepareForRead({ ...data });
     }
 
     return data && new BaseVariable(data);
@@ -160,7 +165,9 @@ export default class BaseVariable implements BaseVariableType {
 
     return (list || [])
       .sort((a, b) => (a?.order ?? Infinity) - (b?.order ?? Infinity))
-      .map((item) => new BaseVariable(BaseVariable.prepareForRead(item)));
+      // [CE-EE] F05 R2 fix: decrypt a copy — list rows may be shared cache
+      // references and must not be mutated in place (see get())
+      .map((item) => new BaseVariable(BaseVariable.prepareForRead({ ...item })));
   }
 
   /**

@@ -38,6 +38,7 @@ const {
   showEEFeatures,
   hideInterfaces,
   blockWorkflows,
+  blockBaseVariables /* [CE-EE] F05 */,
 } = useEeConfig()
 
 const currentBase = computedAsync(async () => {
@@ -186,7 +187,7 @@ watch(
         projectPageTab.value = 'workflows'
       } else if (newVal === 'mcp') {
         projectPageTab.value = 'mcp'
-      } else if (newVal === 'variables' && showEEFeatures.value) {
+      } else if (newVal === 'variables' && !blockBaseVariables.value && isUIAllowed('baseVariableList')) { /* [CE-EE] F05 */
         projectPageTab.value = 'variables'
       } else if (newVal === 'interface-members' && showEEFeatures.value && !hideInterfaces.value) {
         projectPageTab.value = 'interface-members'
@@ -598,7 +599,11 @@ watch(
             <DashboardSettingsBaseMCP />
           </div>
         </a-tab-pane>
-        <a-tab-pane v-if="showEEFeatures && base.id && !isMobileMode" key="variables">
+        <!-- [CE-EE] F05: gate on the feature flag + creator role instead of paywall visibility -->
+        <a-tab-pane
+          v-if="!blockBaseVariables && isUIAllowed('baseVariableList') && base.id && !isMobileMode"
+          key="variables"
+        >
           <template #tab>
             <div class="tab-title" data-testid="proj-view-tab__variables">
               <GeneralIcon icon="ncSettings" />

@@ -2781,7 +2781,10 @@
     "baseAccess": "基本访问权限",
     "restricted": "受限",
     "grantAccessToAllBases": "允许访问所有当前和未来的基础",
-    "selectBases": "选择基础"
+    "selectBases": "选择基础",
+    "key": "键",
+    "value": "值",
+    "type": "类型"
   },
   "activity": {
     "useTemplate": "使用模板",
@@ -3978,7 +3981,12 @@
       "matchedByButtonLabel": "按按钮标签匹配",
       "matchedByFieldDescription": "按字段描述匹配",
       "workspaceRoleUpdateNotice": "更改用户的工作区角色也会更新用户对没有明确角色的基地的访问权限。",
-      "workspaceTeamRoleUpdateNotice": "更改团队的工作区角色也会更新其对没有明确角色的基地的访问权限。"
+      "workspaceTeamRoleUpdateNotice": "更改团队的工作区角色也会更新其对没有明确角色的基地的访问权限。",
+      "baseVariablesSubtitle": "作用于当前 Base 的命名配置值，secret 类型静态加密存储。",
+      "baseVariablesEmpty": "暂无变量，点击右上角添加。",
+      "baseVariableKeyFormat": "仅允许 UPPER_SNAKE_CASE（如 MY_VARIABLE），创建后不可修改。",
+      "baseVariableDeleteTitle": "删除变量？",
+      "baseVariableDeleteDescription": "变量 {key} 将被永久删除。"
     },
     "error": {
       "failedToCreateSync": "创建同步失败",
@@ -4157,7 +4165,8 @@
       "failedToLoadTemplateDetails": "加载模板详细信息失败",
       "rlsPolicyCreateFailed": "创建记录级安全策略失败",
       "rlsPolicyDeleteFailed": "删除记录级安全策略失败",
-      "rlsPolicyUpdateFailed": "更新记录级安全策略失败"
+      "rlsPolicyUpdateFailed": "更新记录级安全策略失败",
+      "baseVariableKeyRequired": "变量键名必填"
     },
     "toast": {
       "expandedFormModeSidePanel": "记录将在侧面板中打开",
@@ -4283,7 +4292,10 @@
       "scimDisabled": "SCIM 预配已禁用",
       "tokenRegenerated": "置备令牌重新生成成功",
       "scimDeleted": "SCIM 配置删除成功",
-      "defaultRoleUpdated": "成功更新默认角色"
+      "defaultRoleUpdated": "成功更新默认角色",
+      "baseVariableCreated": "变量已创建",
+      "baseVariableUpdated": "变量已更新",
+      "baseVariableDeleted": "变量已删除"
     },
     "subText": {
       "startFromScratch": "从头开始。",

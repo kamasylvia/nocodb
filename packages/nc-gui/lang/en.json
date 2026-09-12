@@ -4162,7 +4162,6 @@
     "orgSkillsInventoryTab": "Inventory",
     "skillOverridden": "Overridden",
     "skillPolicyFromOrg": "Set by organization",
-
     "clearFormatting": "Clear formatting",
     "font": "Font",
     "ccBcc": "Cc, Bcc",
@@ -4188,7 +4187,10 @@
     "aiToneConfident": "Confident",
     "inputs": "Inputs",
     "textAlign": "Alignment",
-    "justify": "Justify"
+    "justify": "Justify",
+    "key": "Key",
+    "value": "Value",
+    "type": "Type"
   },
   "activity": {
     "useTemplate": "Use template",
@@ -5786,7 +5788,12 @@
       "interfaceFieldEditSharedDetail": "Changes apply everywhere it is used — views, scripts and workflows.",
       "tooNarrowToAdjustFrozenFields": "You have {saved} frozen fields but only {effective} are appearing frozen right now because your window is too narrow. You can reset the number of frozen fields to 1. You can also change the number of frozen fields by enlarging your window or by making individual fields narrower.",
       "enterAgentName": "Enter agent name",
-      "enterAgentDescription": "Enter agent description"
+      "enterAgentDescription": "Enter agent description",
+      "baseVariablesSubtitle": "Named configuration values scoped to this base. Secret values are encrypted at rest.",
+      "baseVariablesEmpty": "No variables yet. Add one to get started.",
+      "baseVariableKeyFormat": "UPPER_SNAKE_CASE only (e.g. MY_VARIABLE). Immutable after creation.",
+      "baseVariableDeleteTitle": "Delete variable?",
+      "baseVariableDeleteDescription": "Variable {key} will be permanently deleted."
     },
     "error": {
       "interfaceButtonFieldMissing": "This button refers to a field that no longer exists",
@@ -6004,7 +6011,8 @@
       "fieldHeaderVisibilityUpdateFailed": "Error occurred while updating field header visibility",
       "agentNameRequired": "Agent name required",
       "agentNameDuplicate": "Agent name already exists",
-      "agentNameExceedsCharacters": "Agent name exceeds {value} characters"
+      "agentNameExceedsCharacters": "Agent name exceeds {value} characters",
+      "baseVariableKeyRequired": "Variable key is required"
     },
     "toast": {
       "expandedFormModeSidePanel": "Records will now open in the side panel",
@@ -6142,7 +6150,10 @@
       "recordTemplateDeleted": "Template deleted",
       "planChanged": "Plan updated",
       "planChangeScheduled": "Plan change scheduled",
-      "planChangeReverted": "Scheduled plan change reverted. Your current plan continues unchanged."
+      "planChangeReverted": "Scheduled plan change reverted. Your current plan continues unchanged.",
+      "baseVariableCreated": "Variable created",
+      "baseVariableUpdated": "Variable updated",
+      "baseVariableDeleted": "Variable deleted"
     },
     "subText": {
       "startFromScratch": "Start from scratch.",

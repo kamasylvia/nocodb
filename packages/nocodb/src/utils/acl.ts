@@ -264,6 +264,12 @@ export const permissionScopes = {
     'extensionUpdate',
     'extensionDelete',
 
+    // [CE-EE] F05: base variables management (creator+ only)
+    'baseVariableList',
+    'baseVariableCreate',
+    'baseVariableUpdate',
+    'baseVariableDelete',
+
     // Jobs
     'jobList',
 

@@ -353,7 +353,8 @@ export const useEeConfig = createSharedComposable(() => {
 
   const showUpgradeToUseBaseSections = (..._args: any[]) => {}
 
-  const blockBaseVariables = computed(() => true)
+  // [CE-EE] F05 Base variables: implemented in this fork, unblocked
+  const blockBaseVariables = computed(() => false)
 
   const showUpgradeToUseBaseVariables = (..._args: any[]) => {}
 
