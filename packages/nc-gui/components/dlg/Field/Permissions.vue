@@ -201,10 +201,12 @@ watch(
 <template>
   <NcModal
     :visible="visible"
-    :title="$t('title.editFieldPermissions')"
+    :header="$t('title.editFieldPermissions')"
     size="small"
     @update:visible="emit('update:visible', $event)"
   >
+    <!-- [CE-EE] F02 R1: NcModal hardcodes a-modal :footer="null" — render
+         actions inside the body instead of a footer slot -->
     <div class="flex flex-col gap-4 px-1">
       <div class="text-sm text-nc-content-gray-subtle">
         {{ fieldTitle }}
@@ -246,10 +248,9 @@ watch(
           </div>
         </div>
       </a-spin>
-    </div>
 
-    <template #footer>
-      <div class="flex items-center justify-between w-full">
+      <div class="flex items-center justify-between w-full pt-2">
+
         <NcButton
           v-if="existingId"
           type="text"
@@ -281,6 +282,6 @@ watch(
           </NcButton>
         </div>
       </div>
-    </template>
+    </div>
   </NcModal>
 </template>

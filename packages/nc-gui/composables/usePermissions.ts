@@ -149,6 +149,10 @@ export const usePermissions = () => {
   ): boolean => {
     if (!entityId) return true
 
+    // [CE-EE] F02 R1: base owners always pass — keep frontend in sync with
+    // the backend checkPermission/isAllowed owner shortcut
+    if (currentUserPermissionRole.value === PermissionRole.OWNER) return true
+
     const grants = grantsFor(entity, entityId, permission)
     if (!grants.length) return true
 

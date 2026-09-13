@@ -408,9 +408,14 @@ export function useViewData(
           id: fieldById[c.id!] && fieldById[c.id!].id,
           visible: true,
           permissions: {
-            isAllowedToEdit: isAllowed(PermissionEntity.FIELD, c.id!, PermissionKey.RECORD_FIELD_EDIT, {
-              isFormView: true,
-            }),
+            // [CE-EE] F02 R1: lazy getter — a static snapshot here froze the
+            // pre-load (allow) state and the grant never reached Form.vue;
+            // evaluating on access keeps it reactive to grant loading
+            get isAllowedToEdit() {
+              return isAllowed(PermissionEntity.FIELD, c.id!, PermissionKey.RECORD_FIELD_EDIT, {
+                isFormView: true,
+              })
+            },
             label: t('objects.permissions.formViewFieldEditPermissionRestrictionTooltip'),
           },
         }))

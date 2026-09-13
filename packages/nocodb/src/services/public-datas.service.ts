@@ -822,6 +822,10 @@ export class PublicDatasService {
       insertObject[column] = JSON.stringify(data);
     }
 
+    // [CE-EE] F02 R1: flag the form context so checkPermission honours
+    // enforce_for_form on anonymous submissions
+    (param.req as any).isPublicForm = true;
+
     return await baseModel.nestedInsert(insertObject, param.req, null);
   }
 

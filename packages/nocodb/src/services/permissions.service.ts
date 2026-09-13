@@ -59,13 +59,37 @@ export class PermissionsService {
       NcError.badRequest(`Invalid permission ${body.permission}`);
     }
 
-    // F02 scope: RECORD_FIELD_EDIT on fields; F03 will extend to table keys
+    // F02 scope: RECORD_FIELD_EDIT on fields; F03 will extend to table keys.
+    // R1: table-entity grants are rejected outright — with no consumer they
+    // would just be inert rows accepting arbitrary keys.
+    if (body.entity === PermissionEntity.TABLE) {
+      NcError.badRequest(
+        'Table permissions are not supported yet (upcoming data permissions)',
+      );
+    }
     if (
       body.entity === PermissionEntity.FIELD &&
       body.permission !== PermissionKey.RECORD_FIELD_EDIT
     ) {
       NcError.badRequest(
         `Permission ${body.permission} is not supported for fields`,
+      );
+    }
+
+    // R1: one grant per (entity, entity_id, permission) — duplicates make
+    // evaluation order-dependent
+    const allPerms = await Permission.list(context, baseId);
+    // eslint-disable-next-line no-console
+    console.log('[F02-Z] dedup body:', JSON.stringify({ e: body.entity, eid: body.entity_id, k: body.permission }), 'list:', JSON.stringify(allPerms.map((p) => ({ e: p.entity, eid: p.entity_id, k: p.permission, id: p.id }))));
+    const duplicates = allPerms.filter(
+      (p) =>
+        p.entity === body.entity &&
+        p.entity_id === body.entity_id &&
+        p.permission === body.permission,
+    );
+    if (duplicates.length) {
+      NcError.badRequest(
+        'A permission grant already exists for this entity and permission',
       );
     }
 

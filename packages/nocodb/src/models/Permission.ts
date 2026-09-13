@@ -3,6 +3,7 @@ import {
   PermissionEntity,
   PermissionGrantedType,
   PermissionKey,
+  PermissionMeta,
   PermissionRole,
   PermissionRoleMap,
   PermissionRolePower,
@@ -17,12 +18,7 @@ import type { NcContext } from '~/interface/config';
 import Noco from '~/Noco';
 import { extractProps } from '~/helpers/extractProps';
 import { NcError } from '~/helpers/ncError';
-import {
-  CacheGetType,
-  CacheScope,
-  MetaTable,
-} from '~/utils/globals';
-import NocoCache from '~/cache/NocoCache';
+import { MetaTable } from '~/utils/globals';
 
 // [CE-EE] F02: real permission store over nc_permissions / nc_permission_subjects.
 // Semantics (upstream contract, see mcp.controller loadPermissions):
@@ -57,23 +53,6 @@ export default class Permission {
     return permission && new Permission(permission);
   }
 
-  private static baseListCacheKey(baseId: string) {
-    return `${CacheScope.PERMISSION}:base:${baseId}`;
-  }
-
-  private static async evictBaseCache(context: NcContext, baseId: string) {
-    await NocoCache.del(context, Permission.baseListCacheKey(baseId));
-  }
-
-  private static async evictPermissionCache(
-    context: NcContext,
-    baseId: string,
-    permissionId: string,
-  ) {
-    await NocoCache.del(context, `${CacheScope.PERMISSION}:${permissionId}`);
-    await Permission.evictBaseCache(context, baseId);
-  }
-
   private static async insertSubjects(
     context: NcContext,
     permissionId: string,
@@ -102,94 +81,40 @@ export default class Permission {
     baseId: string,
     ncMeta = Noco.ncMeta,
   ): Promise<Permission[]> {
-    // per-request cache. extract-ids pre-seeds context.permissions = [] for
-    // every request, so an empty array is NOT a valid "already loaded" signal
-    // on its own — pair it with a load marker.
-    const ctxAny = context as any;
-    if (ctxAny.permissions?.length || ctxAny.__permissionsLoaded) {
-      return ctxAny.permissions ?? [];
-    }
-
-    // cache convention (mirrors appendToList users): the list key holds the
-    // permission ids (strings), each row lives under its own key. Caching
-    // object arrays directly is broken — CacheMgr routes arrays to sadd.
-    const listKey = Permission.baseListCacheKey(baseId);
-
-    const cachedIds: string[] = await NocoCache.get(
-      context,
-      listKey,
-      CacheGetType.TYPE_ARRAY,
+    // R1: deliberately cache-free. Everything about the NocoCache key space
+    // (pooled contexts collapsing cacheContext prefixes, CacheMgr routing
+    // arrays to sadd, TTL vs eviction interplay) produced stale or
+    // cross-base lists during review; the backing query is a tiny indexed
+    // meta read, so correctness wins. The result is still exposed on
+    // context.permissions for same-request reuse.
+    const rows = await ncMeta.metaList2(
+      context.workspace_id,
+      baseId,
+      MetaTable.PERMISSIONS,
+      { condition: { base_id: baseId } },
     );
 
-    let permissions: Permission[] = [];
+    const permissions: Permission[] = [];
 
-    if (cachedIds?.length) {
-      if (cachedIds[0] === 'NONE') {
-        // valid cached empty set
-        ctxAny.permissions = permissions;
-        ctxAny.__permissionsLoaded = true;
-        return permissions;
-      }
-      for (const id of cachedIds) {
-        const row = await NocoCache.get(
-          context,
-          `${CacheScope.PERMISSION}:${id}`,
-          CacheGetType.TYPE_OBJECT,
-        );
-        if (row) {
-          permissions.push(Permission.castType(row));
-        }
-      }
-    }
-
-    if (!permissions.length) {
-      const rows = await ncMeta.metaList2(
+    for (const row of rows) {
+      const subjectRows = await ncMeta.metaList2(
         context.workspace_id,
         baseId,
-        MetaTable.PERMISSIONS,
-        { condition: { base_id: baseId } },
+        MetaTable.PERMISSION_SUBJECTS,
+        { condition: { fk_permission_id: row.id } },
       );
-
-      for (const row of rows) {
-        const subjectRows = await ncMeta.metaList2(
-          context.workspace_id,
-          baseId,
-          MetaTable.PERMISSION_SUBJECTS,
-          { condition: { fk_permission_id: row.id } },
-        );
-        permissions.push(
-          Permission.castType({
-            ...row,
-            subjects: subjectRows.map((s) => ({
-              type: s.subject_type,
-              id: s.subject_id,
-            })),
-          }),
-        );
-      }
-
-      await NocoCache.del(context, listKey);
-
-      if (permissions.length) {
-        for (const p of permissions) {
-          await NocoCache.set(
-            context,
-            `${CacheScope.PERMISSION}:${p.id}`,
-            { ...p },
-          );
-        }
-        await NocoCache.set(
-          context,
-          listKey,
-          permissions.map((p) => p.id),
-        );
-      } else {
-        await NocoCache.set(context, listKey, ['NONE']);
-      }
+      permissions.push(
+        Permission.castType({
+          ...row,
+          subjects: subjectRows.map((s) => ({
+            type: s.subject_type,
+            id: s.subject_id,
+          })),
+        }),
+      );
     }
 
-    ctxAny.permissions = permissions;
-    ctxAny.__permissionsLoaded = true;
+    context.permissions = permissions;
     return permissions;
   }
 
@@ -282,6 +207,32 @@ export default class Permission {
         'granted_role is required for role grants',
       );
     }
+    // R1: granted_role must be a real role and respect the permission's
+    // minimumRole (e.g. RECORD_FIELD_EDIT cannot be granted to viewer/commenter)
+    if (insertObj.granted_type === PermissionGrantedType.ROLE) {
+      if (
+        !Object.values(PermissionRole).includes(
+          insertObj.granted_role as PermissionRole,
+        )
+      ) {
+        NcError.get(context).badRequest(
+          `Invalid granted_role ${insertObj.granted_role}`,
+        );
+      }
+      const minimumRole =
+        PermissionMeta[
+          insertObj.permission as keyof typeof PermissionMeta
+        ]?.minimumRole;
+      if (
+        minimumRole &&
+        PermissionRolePower[insertObj.granted_role as PermissionRole] <
+          PermissionRolePower[minimumRole]
+      ) {
+        NcError.get(context).badRequest(
+          `granted_role ${insertObj.granted_role} is below the minimum role for ${insertObj.permission}`,
+        );
+      }
+    }
     if (
       insertObj.granted_type === PermissionGrantedType.USER &&
       !data.subjects?.length
@@ -289,6 +240,15 @@ export default class Permission {
       NcError.get(context).badRequest(
         'subjects are required for user grants',
       );
+    }
+    if (data.subjects) {
+      for (const s of data.subjects) {
+        if (!(s.type === 'user' || s.type === 'team') || !s.id) {
+          NcError.get(context).badRequest(
+            'each subject requires a valid type and id',
+          );
+        }
+      }
     }
 
     await ncMeta.metaInsert2(
@@ -307,8 +267,6 @@ export default class Permission {
         ncMeta,
       );
     }
-
-    await Permission.evictBaseCache(context, context.base_id);
 
     return Permission.get(context, insertObj.id, ncMeta);
   }
@@ -343,7 +301,24 @@ export default class Permission {
       );
     }
 
+    // R1: switching to a user grant without subjects would silently deny
+    // everyone — reject instead
+    const targetType =
+      updateObj.granted_type ?? (existing as Permission).granted_type;
+    if (targetType === PermissionGrantedType.USER) {
+      const subjects = data.subjects ?? (existing as Permission).subjects;
+      if (!subjects?.length) {
+        NcError.get(context).badRequest(
+          'subjects are required for user grants',
+        );
+      }
+    }
+
     if (Object.keys(updateObj).length) {
+      // switching to nobody makes granted_role stale — clear it
+      if (updateObj.granted_type === PermissionGrantedType.NOBODY) {
+        updateObj.granted_role = null as any;
+      }
       await ncMeta.metaUpdate(
         context.workspace_id,
         context.base_id,
@@ -370,8 +345,6 @@ export default class Permission {
       }
     }
 
-    await Permission.evictPermissionCache(context, context.base_id, permissionId);
-
     return Permission.get(context, permissionId, ncMeta);
   }
 
@@ -396,8 +369,6 @@ export default class Permission {
       permissionId,
     );
 
-    await Permission.evictPermissionCache(context, context.base_id, permissionId);
-
     return !!existing;
   }
 
@@ -420,7 +391,6 @@ export default class Permission {
       { base_id: baseId },
     );
 
-    await Permission.evictBaseCache(context, baseId);
   }
 
   // placeholder for actual permission check logic

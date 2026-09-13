@@ -348,13 +348,16 @@ export interface IBaseModelSqlV2 {
   sanitizeQuery(query: string | string[]): any;
   getNestedColumn(column: Column, context?: NcContext): Promise<Column | any>;
 
-  checkPermission(params: {
-    entity: PermissionEntity;
-    entityId: string | string[];
-    permission: PermissionKey;
-    user: any;
-    req: any;
-  }): Promise<void>;
+  checkPermission(
+    params: {
+      entity: PermissionEntity;
+      entityId: string | string[];
+      permission: PermissionKey;
+      user: any;
+      req: any;
+    },
+    options?: { isFormContext?: boolean },
+  ): Promise<void>;
 
   // [CE-EE] F02: map written payload keys to column ids for permission checks
   fieldPermissionEntityIds(payload: Record<string, any>, columns: any[]): string[];

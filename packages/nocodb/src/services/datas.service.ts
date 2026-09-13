@@ -1213,7 +1213,11 @@ export class DatasService {
       source,
     });
 
-    return await baseModel.insert(param.body, null, param.cookie);
+    // [CE-EE] F02 R1: pass the request so per-field edit permission checks
+    // can resolve the submitting user (null made this path fail-open)
+    (param.cookie as any).isPublicForm = true;
+
+    return await baseModel.insert(param.body, param.cookie);
   }
 
   async dataUpdateByViewId(

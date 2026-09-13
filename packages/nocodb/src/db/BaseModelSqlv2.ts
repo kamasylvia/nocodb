@@ -3050,6 +3050,23 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
         this.dbDriver,
         columns,
       );
+
+      // [CE-EE] F02 R1: per-field edit permissions — the v1 data insert and
+      // public form submission converge here and bypass insert.ts, so this
+      // path needs its own hook.
+      // eslint-disable-next-line no-console
+      console.log('[F02-Q] nestedInsert reached, ids', JSON.stringify(this.fieldPermissionEntityIds(insertObj, columns)));
+      await this.checkPermission(
+        {
+          entity: PermissionEntity.FIELD,
+          entityId: this.fieldPermissionEntityIds(insertObj, columns),
+          permission: PermissionKey.RECORD_FIELD_EDIT,
+          user: (request as any)?.user,
+          req: request,
+        },
+        { isFormContext: !!(request as any)?.isPublicForm },
+      );
+
       let rowId = null;
 
       const nestedCols = columns.filter((c) => isLinksOrLTAR(c));
@@ -10535,24 +10552,38 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
   // grant is configured for the entity (upstream contract — an empty
   // permission list must never block writes); base owners always pass.
   // Grants are evaluated by the shared SDK rule (Permission.isAllowed).
-  async checkPermission(params: {
-    entity: PermissionEntity;
-    entityId: string | string[];
-    permission: PermissionKey;
-    user: any;
-    req: any;
-  }) {
+  // R1: multiple grants on one entity are all evaluated — any denial blocks
+  // (most-restrictive wins, no insertion-order dependence). Form-context
+  // calls (public/shared form submission) honour enforce_for_form.
+  async checkPermission(
+    params: {
+      entity: PermissionEntity;
+      entityId: string | string[];
+      permission: PermissionKey;
+      user: any;
+      req: any;
+    },
+    options?: { isFormContext?: boolean },
+  ) {
     const user = params.user ?? (params.req as any)?.user;
 
-    if (!user) {
-      return;
-    }
+    const projectRole = user
+      ? (getProjectRole(user) as ProjectRoles)
+      : undefined;
 
-    const projectRole = getProjectRole(user) as ProjectRoles;
+    // eslint-disable-next-line no-console
+    console.log('[F02-R] entry', 'user?', !!user, 'role', projectRole, 'isOwner?', projectRole === ProjectRoles.OWNER);
 
     if (projectRole === ProjectRoles.OWNER) {
       return;
     }
+
+    // R1: BaseModelSqlv2 instances are cached per model, so `this.context`
+    // is the FIRST request's context — the per-request load marker must live
+    // on req.context instead or a stale empty list short-circuits every
+    // later request.
+    const reqContext: NcContext =
+      (params.req as any)?.context ?? this.context;
 
     // request-scoped permission list (MCP preloads req.permissions; data
     // routes go through Permission.list which handles the extract-ids
@@ -10560,7 +10591,7 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     const permissions =
       (params.req as any)?.permissions?.length
         ? (params.req as any).permissions
-        : await Permission.list(this.context, this.context.base_id);
+        : await Permission.list(reqContext, reqContext.base_id);
 
     if (!permissions?.length) {
       return;
@@ -10578,21 +10609,54 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
           p.permission === params.permission,
       );
 
+      // eslint-disable-next-line no-console
+      console.log('[F02-P] check', entityId.slice(0, 6), 'role', projectRole, 'perms', permissions.length, 'grants', grants.length, 'gt', grants[0]?.granted_type);
+
       if (!grants.length) {
         continue;
       }
 
-      const allowed = await Permission.isAllowed(
-        this.context,
-        grants[0],
-        {
+      if (!user) {
+        // anonymous submission (public/shared form): a grant applies unless
+        // it opted out of form enforcement
+        if (
+          options?.isFormContext &&
+          grants.every((g) => g.enforce_for_form === false)
+        ) {
+          continue;
+        }
+        let label = entityId;
+        if (params.entity === PermissionEntity.FIELD) {
+          try {
+            const columns = await this.model.getColumns(this.context);
+            label = columns.find((c) => c.id === entityId)?.title ?? entityId;
+          } catch {
+            /* keep id as label */
+          }
+        }
+        NcError.get(this.context).forbidden(
+          `You don't have permission to edit the field ${label}`,
+        );
+      }
+
+      // any denying grant blocks — evaluation order must not matter
+      let denied = false;
+      for (const grant of grants) {
+        if (options?.isFormContext && grant.enforce_for_form === false) {
+          continue;
+        }
+        const allowed = await Permission.isAllowed(this.context, grant, {
           id: user.id,
           role: projectRole ?? user.role,
           is_agent: user.is_agent,
-        },
-      );
+        });
+        if (!allowed) {
+          denied = true;
+          break;
+        }
+      }
 
-      if (!allowed) {
+      if (denied) {
         let label = entityId;
         if (params.entity === PermissionEntity.FIELD) {
           try {

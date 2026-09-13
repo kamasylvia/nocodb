@@ -990,7 +990,7 @@ const onDeleteColumn = () => {
         :use-meta-fields="meta?.id !== view?.fk_model_id"
       />
       <DlgFieldPermissions
-        v-if="column && meta && isEeUI"
+        v-if="column && meta"
         key="dfp"
         v-model:visible="showFieldPermissionsModal"
         :field="column"
