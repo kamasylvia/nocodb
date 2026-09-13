@@ -53,6 +53,20 @@ export async function getCommandPaletteForUserWorkspace(
         })
         .where('bu.fk_user_id', userId)
         .andWhereNot('bu.roles', ProjectRoles.NO_ACCESS)
+        // [CE-EE] F08 R3: private bases surface here only for explicit
+        // collaborators — INHERIT rows grant workspace-level access upstream
+        // but never base access (mirrors the getProjectsList filter; public
+        // bases keep the upstream INHERIT behavior)
+        .andWhere(function () {
+          this.where(function () {
+            this.where('b.is_private', false).orWhereNull('b.is_private');
+          }).orWhere(function () {
+            this.where('b.is_private', true).andWhereNot(
+              'bu.roles',
+              ProjectRoles.INHERIT,
+            );
+          });
+        })
         .andWhere('t.mm', false)
         .andWhere(function () {
           this.where('dm.disabled', false).orWhereNull('dm.disabled');

@@ -392,11 +392,23 @@ export class PublicMetasService {
     return { base_id: base.id, base_title: base.title };
   }
 
-  public checkBaseType(_base: Base) {
-    // placeholder for future checks
+  public checkBaseType(base: Base) {
+    // [CE-EE] F08 R3: pre-existing share links must stop resolving once the
+    // base is private — this route only carries PublicApiLimiterGuard, so the
+    // BaseViewStrategy interception (GlobalGuard paths) never runs here.
+    if (base?.is_private) {
+      NcError.badRequest(
+        'Shared base feature is not available for private bases. Please contact the base owner for access.',
+      );
+    }
   }
 
-  public checkViewBaseType(_view: View, _base: Base) {
-    // placeholder for future checks
+  public checkViewBaseType(_view: View, base: Base) {
+    // [CE-EE] F08 R3: same rule for view-scoped public routes
+    if (base?.is_private) {
+      NcError.badRequest(
+        'Shared base feature is not available for private bases. Please contact the base owner for access.',
+      );
+    }
   }
 }
