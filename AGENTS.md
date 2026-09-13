@@ -16,7 +16,7 @@
 | F05 | Variables (base variables) | `FEATURE_BASE_VARIABLES` | **pass**（commit 6ab23da0） |
 | F06 | Docs Permissions | `FEATURE_DOCUMENT_PERMISSIONS` | 待做 |
 | F07 | Manage Snapshots | `FEATURE_SCHEDULED_SNAPSHOTS` | **pass**（commit bc409929da） |
-| F08 | Base Type - Private | `FEATURE_PRIVATE_BASES` | 代码完成(6aea3db097)，会审收敛中 |
+| F08 | Base Type - Private | `FEATURE_PRIVATE_BASES` | **pass**（实现 6aea3db097 + 四轮修复，终 e737f8f3ec） |
 | F09 | Sync data (table/custom sync) | `FEATURE_TABLE_SYNC` / `FEATURE_CUSTOM_SYNC` | 待做 |
 | F10 | Create Dashboard | `LIMIT_DASHBOARD_PER_WORKSPACE` | **pass**（commit ab31f60fe3） |
 
