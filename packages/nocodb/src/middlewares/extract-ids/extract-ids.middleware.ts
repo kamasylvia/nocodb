@@ -1255,7 +1255,13 @@ export class AclMiddleware implements NestInterceptor {
       if (!isSuperAdmin) {
         const base = await Base.get(req.context, req.ncBaseId);
         if (base?.is_private) {
-          const baseRoles = req.user?.base_roles;
+          // [CE-EE] F08 R1: legacy api tokens carry no real user — the auth
+          // strategy fabricates base_roles={editor} for them, so they must
+          // never count as explicit collaborators.
+          const isLegacyApiToken = req.user.is_api_token && !req.user.id;
+          const baseRoles = isLegacyApiToken
+            ? undefined
+            : req.user?.base_roles;
           const hasExplicitBaseRole =
             !!baseRoles &&
             Object.entries(baseRoles).some(

@@ -150,6 +150,10 @@ const rolePermissions = {
       dashboardCreate: true,
       dashboardUpdate: true,
       dashboardDelete: true,
+
+      // [CE-EE] F08: base type management — toggle workspace-shared/private
+      // (creator+ only; OWNER/ADMIN inherit via superAdmin '*' and role merge)
+      manageBaseType: true,
     },
   },
   [ProjectRoles.EDITOR]: {

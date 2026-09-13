@@ -5,12 +5,16 @@ const { isUIAllowed } = useRoles()
 
 const { isFeatureEnabled } = useBetaFeatureToggle()
 
-const { showEEFeatures, getFeature } = useEeConfig()
+const { showEEFeatures, getFeature, blockPrivateBases } = useEeConfig()
 
 const baseStore = useBase()
 const { base } = storeToRefs(baseStore)
 
-const hasPermissionForBaseAccess = computed(() => isEeUI && isUIAllowed('manageBaseType') && showEEFeatures.value)
+// [CE-EE] F08: gate on the fork's feature flag instead of the isEeUI compile
+// switch — CE builds keep isEeUI=false, the fork ships private bases
+const hasPermissionForBaseAccess = computed(
+  () => !blockPrivateBases.value && isUIAllowed('manageBaseType'),
+)
 
 // No upgrade badge — migrating a base out isn't purchasable on cloud, it's granted
 // per deal, so an upgrade CTA would lead nowhere. Hide the tab instead.

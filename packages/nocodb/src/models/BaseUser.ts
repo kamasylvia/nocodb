@@ -627,6 +627,27 @@ export default class BaseUser {
           ProjectRoles.NO_ACCESS,
         );
       });
+      // [CE-EE] F08 R1: private bases surface only to explicit collaborators
+      // here too — inherit/no-access/null-roles rows grant workspace-level
+      // access upstream but never base access, so they must not list a
+      // private base (mirrors the workspace-inherited branch above).
+      qb.andWhere(
+        ncMeta.knex.raw(
+          `(${MetaTable.PROJECT}.is_private IS NOT TRUE OR EXISTS (
+            SELECT 1 FROM ?? bu2
+            WHERE bu2.base_id = ??.id
+              AND bu2.fk_user_id = ?
+              AND bu2.roles NOT IN (?, ?)
+          ))`,
+          [
+            MetaTable.PROJECT_USERS,
+            MetaTable.PROJECT,
+            userId,
+            ProjectRoles.NO_ACCESS,
+            ProjectRoles.INHERIT,
+          ],
+        ),
+      );
     }
 
     // filter starred bases

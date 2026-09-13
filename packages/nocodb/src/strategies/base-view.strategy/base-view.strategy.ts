@@ -26,6 +26,17 @@ export class BaseViewStrategy extends PassportStrategy(Strategy, 'base-view') {
           );
         }
 
+        // [CE-EE] F08 R1: fork-private bases block shared links at the auth
+        // layer too — a link created before privatization must stop resolving
+        // (the extract-ids mask skips public pseudo users by design).
+        if (sharedBase?.is_private) {
+          return callback(
+            new UnauthorizedException(
+              'Shared base feature is not available for private bases. Please contact the base owner for access.',
+            ),
+          );
+        }
+
         // validate base id
         if (!sharedBase || req.ncBaseId !== sharedBase.id) {
           return callback(new UnauthorizedException());

@@ -77,7 +77,8 @@ export const useBase = defineStore('baseStore', () => {
     }
   })
 
-  const isPrivateBase = computed(() => false)
+  // [CE-EE] F08: wired to the base's is_private flag (CE stub was hardcoded false)
+  const isPrivateBase = computed(() => !!(base.value as any)?.is_private)
 
   const showBaseAccessRequestOverlay = computed(() => false)
 

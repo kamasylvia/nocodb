@@ -9,16 +9,16 @@
 
 | # | 功能 | EE feature flag (`PlanFeatureTypes`) | 状态 |
 |---|---|---|---|
-| F01 | Unique values only | `FEATURE_UNIQUE` | 代码完成(commit 744d3161)，会审收敛中 |
+| F01 | Unique values only | `FEATURE_UNIQUE` | **pass**（commit 744d3161） |
 | F02 | Edit field permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | 待做 |
 | F03 | Data permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | 待做 |
 | F04 | Manage Syncs | `FEATURE_SYNC` | 待做 |
 | F05 | Variables (base variables) | `FEATURE_BASE_VARIABLES` | **pass**（commit 6ab23da0） |
 | F06 | Docs Permissions | `FEATURE_DOCUMENT_PERMISSIONS` | 待做 |
-| F07 | Manage Snapshots | `FEATURE_SCHEDULED_SNAPSHOTS` | 代码完成，会审收敛中 |
-| F08 | Base Type - Private | `FEATURE_PRIVATE_BASES` | 待做 |
+| F07 | Manage Snapshots | `FEATURE_SCHEDULED_SNAPSHOTS` | **pass**（commit bc409929da） |
+| F08 | Base Type - Private | `FEATURE_PRIVATE_BASES` | 代码完成(6aea3db097)，会审收敛中 |
 | F09 | Sync data (table/custom sync) | `FEATURE_TABLE_SYNC` / `FEATURE_CUSTOM_SYNC` | 待做 |
-| F10 | Create Dashboard | `LIMIT_DASHBOARD_PER_WORKSPACE` | 待做 |
+| F10 | Create Dashboard | `LIMIT_DASHBOARD_PER_WORKSPACE` | **pass**（commit ab31f60fe3） |
 
 ## 2. 架构关键认知（改码前必读）
 

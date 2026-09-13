@@ -98,6 +98,8 @@ import * as nc_202608211200_widen_entity_id_columns from './v0/nc_202608211200_w
 import * as nc_202608281200_comment_notification_pref_index from './v0/nc_202608281200_comment_notification_pref_index';
 import * as nc_202609021200_admin_suspend from './v0/nc_202609021200_admin_suspend';
 import * as nc_202609031200_agents from './v0/nc_202609031200_agents';
+import * as nc_20260913_dashboard_title_unique from './v0/nc_20260913_dashboard_title_unique'; // [CE-EE] F10
+import * as nc_20260913_add_is_private_to_bases from './v0/nc_20260913_add_is_private_to_bases'; // [CE-EE] F08
 
 // Create a custom migration source class
 export default class XcMigrationSourcev0 {
@@ -207,6 +209,8 @@ export default class XcMigrationSourcev0 {
       'nc_202608281200_comment_notification_pref_index',
       'nc_202609021200_admin_suspend',
       'nc_202609031200_agents',
+      'nc_20260913_dashboard_title_unique', // [CE-EE] F10
+      'nc_20260913_add_is_private_to_bases', // [CE-EE] F08: private base flag
     ]);
   }
 
@@ -416,6 +420,10 @@ export default class XcMigrationSourcev0 {
         return nc_202609021200_admin_suspend;
       case 'nc_202609031200_agents':
         return nc_202609031200_agents;
+      case 'nc_20260913_dashboard_title_unique':
+        return nc_20260913_dashboard_title_unique;
+      case 'nc_20260913_add_is_private_to_bases':
+        return nc_20260913_add_is_private_to_bases;
     }
   }
 }

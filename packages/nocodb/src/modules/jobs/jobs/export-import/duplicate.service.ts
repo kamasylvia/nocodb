@@ -106,6 +106,11 @@ export class DuplicateService {
         title: uniqueTitle,
         status: ProjectStatus.JOB,
         ...(body.base || {}),
+        // [CE-EE] F08 R1: copies inherit the source's privacy — otherwise a
+        // duplicate/snapshot of a private base lands as a public base every
+        // workspace member can read. Set after the spread so a caller-supplied
+        // body can't downgrade it; owners can still unhide via baseUpdate.
+        is_private: !!base.is_private,
         fk_workspace_id: targetWorkspaceId,
       },
       user: {

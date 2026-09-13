@@ -71,7 +71,8 @@ export const useEeConfig = createSharedComposable(() => {
 
   const blockTableAndFieldPermissions = computed(() => true)
 
-  const blockPrivateBases = computed(() => true)
+  // [CE-EE] F08: fork ships private bases — unblocked
+  const blockPrivateBases = computed(() => false)
 
   // [CE-EE] F10: fork ships dashboards — unblocked
   const blockAddNewDashboard = computed(() => false)

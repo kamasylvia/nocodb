@@ -27356,6 +27356,10 @@
           "fk_workspace_id": {
             "description": "Workspace ID",
             "type": "string"
+          },
+          "is_private": {
+            "type": "boolean",
+            "description": "F08: invite-only base — visible only to explicit collaborators, hidden from workspace-inherited members."
           }
         },
         "required": [
@@ -27413,6 +27417,10 @@
             "description": "The order of the list of projects.",
             "example": 1,
             "minimum": 0
+          },
+          "is_private": {
+            "type": "boolean",
+            "description": "F08: invite-only base — visible only to explicit collaborators, hidden from workspace-inherited members."
           }
         }
       },

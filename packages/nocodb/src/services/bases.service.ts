@@ -129,8 +129,16 @@ export class BasesService {
       'description',
       'default_role',
       'version',
-      'is_private', // [CE-EE] F08: allow toggling base privacy via the update API
     ]);
+    // [CE-EE] F08: is_private must bypass DOMPurify — sanitize(false) === '' and
+    // PG boolean rejects '' (22P02), which turned "unhide base" into a one-way
+    // door. Strict boolean only, mirroring the unique flag normalization.
+    if ('is_private' in param.base) {
+      if (typeof param.base.is_private !== 'boolean') {
+        NcError.badRequest('is_private must be a boolean');
+      }
+      data.is_private = param.base.is_private;
+    }
     if (data.title) {
       const nameValidation = validateEntityName(data.title, 'Base name');
       if (!nameValidation.valid) {
@@ -255,6 +263,15 @@ export class BasesService {
     );
 
     const baseId = await this.metaService.genNanoid(MetaTable.PROJECT);
+
+    // [CE-EE] F08: strict boolean only — mirrors the update path so a stray
+    // string can't slip into the PG boolean column on create.
+    if (
+      'is_private' in param.base &&
+      typeof param.base.is_private !== 'boolean'
+    ) {
+      NcError.badRequest('is_private must be a boolean');
+    }
 
     const baseBody: ProjectReqType & Record<string, any> = param.base;
     baseBody.id = baseId;

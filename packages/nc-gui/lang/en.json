@@ -5800,7 +5800,9 @@
       "baseSnapshotDeleteTitle": "Delete snapshot?",
       "baseSnapshotDeleteDescription": "Snapshot \"{title}\" and its copy base will be permanently deleted.",
       "baseSnapshotsRestoreHint": "Restoring duplicates the snapshot back into the workspace as a new base — your working base is never modified.",
-      "dashboardEmpty": "No widgets yet — widget rendering lands with the widget layer."
+      "dashboardEmpty": "No widgets yet — widget rendering lands with the widget layer.",
+      "baseTypeChangedToPrivate": "Base type changed to private. Only invited collaborators can access it now.",
+      "baseTypeChangedToWorkspace": "Base type changed to workspace. Workspace members can access it based on their role."
     },
     "error": {
       "interfaceButtonFieldMissing": "This button refers to a field that no longer exists",

@@ -99,7 +99,9 @@ export class BasesV3Service {
       ...(param.qsInclude?.includes('members')
         ? await this.baseMemberHelpers.getBaseMember(context, {
             baseId: param.baseId,
-            isPrivateBase: base.default_role === 'no-access',
+            // [CE-EE] F08 R1: privacy rides the fork's is_private column, not
+            // the upstream default_role sentinel
+            isPrivateBase: !!base.is_private,
           })
         : {}),
     } as BaseV3Type;

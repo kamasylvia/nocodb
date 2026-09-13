@@ -44,6 +44,14 @@ export class SharedBasesService {
       );
     }
 
+    // [CE-EE] F08 R1: a public share link would hand anonymous viewers full
+    // access to a private base — creation is rejected outright.
+    if (base.is_private) {
+      NcError.badRequest(
+        'Shared links are not available for private bases. Invite collaborators instead.',
+      );
+    }
+
     const data: any = {
       uuid: uuidv4(),
       // Shared bases have no password feature (not in SharedBaseReq, not in the
@@ -102,6 +110,14 @@ export class SharedBasesService {
     if (base.is_sandbox) {
       NcError.badRequest(
         'Shared links cannot be updated on sandbox bases. Share the master base instead.',
+      );
+    }
+
+    // [CE-EE] F08 R1: same rule as create — a private base cannot expose a
+    // share link (including refreshing an existing one).
+    if (base.is_private) {
+      NcError.badRequest(
+        'Shared links are not available for private bases. Invite collaborators instead.',
       );
     }
 
