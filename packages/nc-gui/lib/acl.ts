@@ -152,7 +152,7 @@ const rolePermissions = {
       dashboardDelete: true,
 
       // [CE-EE] F08: base type management — toggle workspace-shared/private
-      // (creator+ only; OWNER/ADMIN inherit via superAdmin '*' and role merge)
+      // (creator+ only; OWNER reaches it through role-scope include merging)
       manageBaseType: true,
     },
   },
