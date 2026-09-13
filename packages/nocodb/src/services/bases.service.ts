@@ -129,6 +129,7 @@ export class BasesService {
       'description',
       'default_role',
       'version',
+      'is_private', // [CE-EE] F08: allow toggling base privacy via the update API
     ]);
     if (data.title) {
       const nameValidation = validateEntityName(data.title, 'Base name');

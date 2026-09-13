@@ -665,9 +665,22 @@ export default class User implements UserType {
       }
     }
 
+    // [CE-EE] F08: resolve the private flag of the targeted base so workspace
+    // inheritance can be skipped for non-collaborators.
+    let isPrivateBase = false;
+    if (args.baseId) {
+      const base = await Base.get(context, args.baseId, ncMeta);
+      isPrivateBase = !!base?.is_private;
+    }
+
     // If no explicit base role, inherit from workspace role
     let effectiveBaseRoles = baseRoles;
-    if (!effectiveBaseRoles && workspaceRoles) {
+    if (!effectiveBaseRoles && isPrivateBase) {
+      // [CE-EE] F08: private base and no explicit collaborator role (missing,
+      // null, no-access or inherit row) — skip workspace inheritance entirely;
+      // the base is invisible to this user.
+      effectiveBaseRoles = extractRolesObj(ProjectRoles.NO_ACCESS);
+    } else if (!effectiveBaseRoles && workspaceRoles) {
       const wsRoleStr = Object.keys(workspaceRoles).find(
         (k) => workspaceRoles[k],
       ) as WorkspaceUserRoles | undefined;

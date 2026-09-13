@@ -1244,6 +1244,33 @@ export class AclMiddleware implements NestInterceptor {
     }
     // todo : verify user have access to base or not
 
+    // [CE-EE] F08: private bases are masked as non-existent for anyone who is
+    // not an explicit collaborator — 404 instead of 403/200 so existence is
+    // not leaked through the API surface. Super admins keep full visibility;
+    // shared-base (public) pseudo users keep working via their share UUID.
+    if (req.ncBaseId && req.user && !req.user.isPublicBase) {
+      const isSuperAdmin =
+        req.user?.roles?.[OrgUserRoles.SUPER_ADMIN] ||
+        req.user?.org_roles?.[OrgUserRoles.SUPER_ADMIN];
+      if (!isSuperAdmin) {
+        const base = await Base.get(req.context, req.ncBaseId);
+        if (base?.is_private) {
+          const baseRoles = req.user?.base_roles;
+          const hasExplicitBaseRole =
+            !!baseRoles &&
+            Object.entries(baseRoles).some(
+              ([role, hasRole]) =>
+                hasRole &&
+                role !== ProjectRoles.NO_ACCESS &&
+                role !== ProjectRoles.INHERIT,
+            );
+          if (!hasExplicitBaseRole) {
+            NcError.baseNotFound(req.ncBaseId);
+          }
+        }
+      }
+    }
+
     // if user have no access role and trying to remove self from workspace then allow it
     const isUserWithNoAccessLeavingWorkspace =
       permissionName === 'workspaceUserDelete' &&

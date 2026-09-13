@@ -593,6 +593,26 @@ export default class BaseUser {
               `${MetaTable.WORKSPACE_USER}.roles`,
               '!=',
               WorkspaceUserRoles.NO_ACCESS,
+            )
+            // [CE-EE] F08: a private base never reaches this branch through
+            // workspace inheritance — it is listed only for explicit
+            // collaborators (a real nc_base_users_v2 role).
+            .andWhere(
+              ncMeta.knex.raw(
+                `(${MetaTable.PROJECT}.is_private IS NOT TRUE OR EXISTS (
+                  SELECT 1 FROM ?? bu2
+                  WHERE bu2.base_id = ??.id
+                    AND bu2.fk_user_id = ?
+                    AND bu2.roles NOT IN (?, ?)
+                ))`,
+                [
+                  MetaTable.PROJECT_USERS,
+                  MetaTable.PROJECT,
+                  userId,
+                  ProjectRoles.NO_ACCESS,
+                  ProjectRoles.INHERIT,
+                ],
+              ),
             );
         });
       });

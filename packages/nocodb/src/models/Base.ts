@@ -50,6 +50,9 @@ export default class Base implements BaseType {
   public default_role?: 'no-access';
   public is_snapshot?: boolean;
   public version?: BaseVersion;
+  // [CE-EE] F08: private base — visible only to explicit collaborators,
+  // hidden from workspace-inherited members.
+  public is_private?: boolean;
   // Declared on CE Base (like default_role) so the shared PROJECT column is
   // readable through the CE-typed Base.get/getWithInfo.
   public suspended?: boolean;
@@ -111,6 +114,7 @@ export default class Base implements BaseType {
       'auto_update',
       'is_sandbox_production',
       'is_sandbox',
+      'is_private', // [CE-EE] F08
     ]);
 
     if (!insertObj.order) {
@@ -505,6 +509,7 @@ export default class Base implements BaseType {
       'auto_update',
       'is_sandbox_production',
       'is_sandbox',
+      'is_private', // [CE-EE] F08
     ]);
 
     // stringify meta
