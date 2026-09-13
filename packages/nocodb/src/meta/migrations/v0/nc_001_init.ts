@@ -377,6 +377,8 @@ const up = async (knex: Knex) => {
     table.string('uuid', 255).index('share_uuid_idx');
     table.string('password', 255);
     table.string('fk_custom_url_id', 20);
+    // [CE-EE] F10: unique dashboard title per base
+    table.unique(['base_id', 'title'], 'nc_dashboards_base_title_unique');
 
     table.timestamps(true, true);
 

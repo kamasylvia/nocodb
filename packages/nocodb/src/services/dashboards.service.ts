@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { NcContext, NcRequest } from '~/interface/config';
 import Dashboard from '~/models/Dashboard';
 import { NcError } from '~/helpers/catchError';
+import { isUniqueViolation } from '~/helpers/isUniqueViolation';
 
 // [CE-EE] F10: dashboards CRUD — implements the EE "Create Dashboard"
 // surface on CE. Widget rendering is deferred; a dashboard is a titled
@@ -53,13 +54,23 @@ export class DashboardsService {
       );
     }
 
-    return Dashboard.insert(context, {
-      base_id: baseId,
-      title,
-      description: body?.description,
-      created_by: req.user.id,
-      owned_by: req.user.id,
-    });
+    try {
+      return await Dashboard.insert(context, {
+        base_id: baseId,
+        title,
+        description: body?.description,
+        created_by: req.user.id,
+        owned_by: req.user.id,
+      });
+    } catch (e: any) {
+      // [CE-EE] F10 R3: race-safe dup-title rejection
+      if (isUniqueViolation(e)) {
+        NcError.badRequest(
+          `Dashboard title ${title} already exists in this base`,
+        );
+      }
+      throw e;
+    }
   }
 
   async update(
@@ -68,13 +79,21 @@ export class DashboardsService {
     dashboardId: string,
     body: { title?: string; description?: string },
   ) {
-    // [CE-EE] F10 R1: description must be a string (or null to clear)
+    // [CE-EE] F10: description must be a string (or null to clear)
     if (
       body?.description !== undefined &&
       body.description !== null &&
       typeof body.description !== 'string'
     ) {
       NcError.badRequest('Dashboard description must be a string');
+    }
+    // [CE-EE] F10: title must be a string if provided
+    if (
+      body?.title !== undefined &&
+      body.title !== null &&
+      typeof body.title !== 'string'
+    ) {
+      NcError.badRequest('Dashboard title must be a string');
     }
     const dashboard = await this.getDashboardWithBaseCheck(
       context,
@@ -83,10 +102,12 @@ export class DashboardsService {
     );
 
     if (body?.title !== undefined) {
-      if (typeof body.title !== 'string' || !body.title.trim()) {
+      // [CE-EE] F10 R2: trim before all checks (parity with create path)
+      const trimmedTitle = (body.title as string).trim();
+      if (!trimmedTitle) {
         NcError.badRequest('Dashboard title must be a non-empty string');
       }
-      if (body.title.length > MAX_TITLE_LENGTH) {
+      if (trimmedTitle.length > MAX_TITLE_LENGTH) {
         NcError.badRequest(
           `Dashboard title exceeds ${MAX_TITLE_LENGTH} characters limit`,
         );

@@ -192,7 +192,8 @@ export default class Dashboard {
   async getWidgets(..._args) {
     // [CE-EE] F10: widget system deferred — dashboards render as titled
     // containers until the widget layer lands
-    return [];
+    this.widgets = [];
+    return this.widgets;
   }
 
   static async deleteByBaseId(

@@ -364,6 +364,9 @@ export default class XcMigrationSourcev2 {
         return nc_097_unify_schema;
       case 'nc_098_default_workspace':
         return nc_098_default_workspace;
+      // [CE-EE] F10: dashboard title unique index migration
+      case 'nc_20260913_dashboard_title_unique':
+        return nc_20260913_dashboard_title_unique;
     }
   }
 }
