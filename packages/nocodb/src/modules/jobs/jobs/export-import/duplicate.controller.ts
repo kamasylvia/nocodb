@@ -86,6 +86,11 @@ export class DuplicateController {
         title: uniqueTitle,
         status: ProjectStatus.JOB,
         ...(body.base || {}),
+        // [CE-EE] F08 R4: shared-base duplication has its own baseCreate call
+        // (separate from DuplicateService.duplicateBase) — without this, the
+        // copy of a private base lands public. Same rule as duplicate.service:
+        // set after the spread so a caller-supplied body can't downgrade it.
+        is_private: !!base.is_private,
         fk_workspace_id: context.workspace_id,
       },
       user: { id: req.user.id },
