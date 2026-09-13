@@ -339,9 +339,31 @@ export default class Permission {
     }
 
     // R1: switching to a user grant without subjects would silently deny
-    // everyone — reject instead
+    // everyone — reject instead. R3: nobody + subjects is a contradictory
+    // payload and nobody → role must name a role; all three resolved-type
+    // invariants are validated before any write.
     const targetType =
       updateObj.granted_type ?? (existing as Permission).granted_type;
+
+    if (targetType === PermissionGrantedType.NOBODY && data.subjects?.length) {
+      NcError.get(context).badRequest(
+        'subjects are not allowed on nobody grants',
+      );
+    }
+
+    if (
+      targetType === PermissionGrantedType.ROLE &&
+      !((data.granted_role ??
+        (existing as Permission).granted_role) as string) &&
+      updateObj.granted_type === PermissionGrantedType.ROLE
+    ) {
+      // nobody → role without naming a role would land a null-role grant the
+      // SDK evaluates deny-all
+      NcError.get(context).badRequest(
+        'granted_role is required for role grants',
+      );
+    }
+
     if (targetType === PermissionGrantedType.USER) {
       const subjects = data.subjects ?? (existing as Permission).subjects;
       if (!subjects?.length) {
@@ -365,17 +387,6 @@ export default class Permission {
       );
     }
 
-    if (updateObj.granted_type === PermissionGrantedType.NOBODY) {
-      // R2: nobody grants carry no role and no subjects — stale rows would
-      // silently restore access if the grant is switched back to user
-      await ncMeta.metaDelete(
-        context.workspace_id,
-        context.base_id,
-        MetaTable.PERMISSION_SUBJECTS,
-        { fk_permission_id: permissionId },
-      );
-    }
-
     if (data.subjects) {
       await ncMeta.metaDelete(
         context.workspace_id,
@@ -391,6 +402,17 @@ export default class Permission {
           ncMeta,
         );
       }
+    }
+
+    // R3: nobody carries no subjects — enforced after the rebuild above so
+    // the invariant holds regardless of payload order
+    if (targetType === PermissionGrantedType.NOBODY) {
+      await ncMeta.metaDelete(
+        context.workspace_id,
+        context.base_id,
+        MetaTable.PERMISSION_SUBJECTS,
+        { fk_permission_id: permissionId },
+      );
     }
 
     return Permission.get(context, permissionId, ncMeta);

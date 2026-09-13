@@ -16,8 +16,9 @@ import { Acl } from '~/middlewares/extract-ids/extract-ids.middleware';
 import { TenantContext } from '~/decorators/tenant-context.decorator';
 import { PermissionsService } from '~/services/permissions.service';
 
-// [CE-EE] F02: meta API surface for field edit permissions (CRUD). The
-// permission names are enforced through the standard role ACL (creator+ only).
+// [CE-EE] F02: meta API surface for field edit permissions (CRUD).
+// permissionList is readable by editors+ (grants drive lock icons / form
+// field hiding in the frontend); create/update/delete are creator+ only.
 // F03 (table record add/delete/visibility) reuses these endpoints with
 // entity=table — the surface is intentionally generic.
 

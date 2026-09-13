@@ -12,9 +12,10 @@ import { Permission } from '~/models';
 import { Column } from '~/models';
 import { Model } from '~/models';
 
-// [CE-EE] F02: field edit permission CRUD. The permission names are enforced
-// through the standard role ACL (creator+ only). F03 (table permissions)
-// reuses the same endpoints with entity=table — the API is generic by design.
+// [CE-EE] F02: field edit permission CRUD. permissionList is readable by
+// editors+; create/update/delete are enforced creator+ through the standard
+// role ACL. F03 (table permissions) reuses the same endpoints with
+// entity=table — the API is generic by design.
 
 @Injectable()
 export class PermissionsService {
