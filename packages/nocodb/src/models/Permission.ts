@@ -207,49 +207,16 @@ export default class Permission {
         'granted_role is required for role grants',
       );
     }
-    // R1: granted_role must be a real role and respect the permission's
-    // minimumRole (e.g. RECORD_FIELD_EDIT cannot be granted to viewer/commenter)
-    if (insertObj.granted_type === PermissionGrantedType.ROLE) {
-      if (
-        !Object.values(PermissionRole).includes(
-          insertObj.granted_role as PermissionRole,
-        )
-      ) {
-        NcError.get(context).badRequest(
-          `Invalid granted_role ${insertObj.granted_role}`,
-        );
-      }
-      const minimumRole =
-        PermissionMeta[
-          insertObj.permission as keyof typeof PermissionMeta
-        ]?.minimumRole;
-      if (
-        minimumRole &&
-        PermissionRolePower[insertObj.granted_role as PermissionRole] <
-          PermissionRolePower[minimumRole]
-      ) {
-        NcError.get(context).badRequest(
-          `granted_role ${insertObj.granted_role} is below the minimum role for ${insertObj.permission}`,
-        );
-      }
-    }
-    if (
-      insertObj.granted_type === PermissionGrantedType.USER &&
-      !data.subjects?.length
-    ) {
-      NcError.get(context).badRequest(
-        'subjects are required for user grants',
-      );
-    }
-    if (data.subjects) {
-      for (const s of data.subjects) {
-        if (!(s.type === 'user' || s.type === 'team') || !s.id) {
-          NcError.get(context).badRequest(
-            'each subject requires a valid type and id',
-          );
-        }
-      }
-    }
+    Permission.validateGrantShape(
+      context,
+      {
+        granted_type: insertObj.granted_type,
+        granted_role: insertObj.granted_role,
+        permission: insertObj.permission,
+        subjects: data.subjects,
+      },
+      { requireSubjectsForUser: true },
+    );
 
     await ncMeta.metaInsert2(
       context.workspace_id,
@@ -271,6 +238,65 @@ export default class Permission {
     return Permission.get(context, insertObj.id, ncMeta);
   }
 
+  // R2: shared grant-shape validation — role grants need a real role at/above
+  // the permission's minimumRole; user grants need concrete subjects
+  private static validateGrantShape(
+    context: NcContext,
+    grant: {
+      granted_type?: PermissionGrantedType;
+      granted_role?: string;
+      permission?: string;
+      subjects?: { type: 'user' | 'team'; id: string }[];
+    },
+    options?: { requireSubjectsForUser?: boolean },
+  ) {
+    // R2: a user grant without concrete subjects silently denies everyone —
+    // required on create; on update the caller decides (subjects may be
+    // retained from the existing row)
+    if (
+      options?.requireSubjectsForUser &&
+      grant.granted_type === PermissionGrantedType.USER &&
+      !grant.subjects?.length
+    ) {
+      NcError.get(context).badRequest('subjects are required for user grants');
+    }
+    if (
+      grant.granted_type === PermissionGrantedType.ROLE &&
+      grant.granted_role
+    ) {
+      if (
+        !Object.values(PermissionRole).includes(
+          grant.granted_role as PermissionRole,
+        )
+      ) {
+        NcError.get(context).badRequest(
+          `Invalid granted_role ${grant.granted_role}`,
+        );
+      }
+      const minimumRole =
+        PermissionMeta[grant.permission as keyof typeof PermissionMeta]
+          ?.minimumRole;
+      if (
+        minimumRole &&
+        PermissionRolePower[grant.granted_role as PermissionRole] <
+          PermissionRolePower[minimumRole]
+      ) {
+        NcError.get(context).badRequest(
+          `granted_role ${grant.granted_role} is below the minimum role for ${grant.permission}`,
+        );
+      }
+    }
+    if (grant.subjects) {
+      for (const s of grant.subjects) {
+        if (!(s.type === 'user' || s.type === 'team') || !s.id) {
+          NcError.get(context).badRequest(
+            'each subject requires a valid type and id',
+          );
+        }
+      }
+    }
+  }
+
   public static async update(
     context: NcContext,
     permissionId: string,
@@ -280,6 +306,17 @@ export default class Permission {
     ncMeta = Noco.ncMeta,
   ): Promise<Permission> {
     const existing = await Permission.get(context, permissionId, ncMeta);
+
+    // R2: update path enforces the same grant-shape rules as create — a
+    // patched granted_role used to bypass enum/minimumRole validation
+    Permission.validateGrantShape(context, {
+      granted_type:
+        data.granted_type ?? (existing as Permission).granted_type,
+      granted_role:
+        data.granted_role ?? (existing as Permission).granted_role,
+      permission: (existing as Permission).permission,
+      subjects: data.subjects,
+    });
 
     const updateObj = extractProps(data, [
       'granted_type',
@@ -325,6 +362,17 @@ export default class Permission {
         MetaTable.PERMISSIONS,
         updateObj,
         permissionId,
+      );
+    }
+
+    if (updateObj.granted_type === PermissionGrantedType.NOBODY) {
+      // R2: nobody grants carry no role and no subjects — stale rows would
+      // silently restore access if the grant is switched back to user
+      await ncMeta.metaDelete(
+        context.workspace_id,
+        context.base_id,
+        MetaTable.PERMISSION_SUBJECTS,
+        { fk_permission_id: permissionId },
       );
     }
 

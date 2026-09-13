@@ -45,8 +45,12 @@ export const usePermissions = () => {
     () => null,
   )
 
-  const loadPermissions = async () => {
-    if (!baseId.value || loadedFor.value === baseId.value) return
+  const loadPermissions = async (force = false) => {
+    // [CE-EE] F02 R2: force bypasses the per-base guard so callers that just
+    // wrote grants (dialog save/delete) always refetch — otherwise the guard
+    // made the post-save refetch a no-op and the UI served stale grants
+    if (!force && loadedFor.value === baseId.value) return
+    if (!baseId.value) return
     loadedFor.value = baseId.value
     try {
       const { $api } = useNuxtApp()

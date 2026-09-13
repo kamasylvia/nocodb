@@ -23,7 +23,7 @@ const { t } = useI18n()
 const { base } = storeToRefs(useBase())
 const basesStore = useBases()
 
-const { permissionOptions, permissions, loadPermissions } = usePermissions()
+const { permissionOptions, permissions, loadPermissions, getPermissionLabel } = usePermissions()
 
 const selected = ref<PermissionOptionValue>(PermissionOptionValue.EDITORS_AND_UP)
 const selectedUsers = ref<string[]>([])
@@ -157,7 +157,7 @@ const save = async () => {
     }
 
     // refresh the shared grant list so grid/form react immediately
-    await loadPermissions()
+    await loadPermissions(true)
 
     message.success(t('msg.success.permissionUpdated'))
     emit('update:visible', false)
@@ -175,7 +175,7 @@ const resetToDefault = async () => {
     await $api.instance.delete(
       `/api/v2/meta/bases/${base.value.id}/permissions/${existingId.value}`,
     )
-    await loadPermissions()
+    await loadPermissions(true)
     existingId.value = null
     selected.value = PermissionOptionValue.EDITORS_AND_UP
     selectedUsers.value = []

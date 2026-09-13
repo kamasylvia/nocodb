@@ -553,6 +553,11 @@ const rolePermissions:
       // and Owner still get it from here.
       userInvite: true,
 
+      // [CE-EE] F02 R2: read-only grant visibility for editors+ — the
+      // frontend needs grants to render lock icons / form field hiding;
+      // configuration stays creator+ (permissionCreate/Update/Delete)
+      permissionList: true,
+
       dataUpdate: true,
       dataDelete: true,
       dataInsert: true,

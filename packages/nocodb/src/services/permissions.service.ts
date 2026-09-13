@@ -79,8 +79,6 @@ export class PermissionsService {
     // R1: one grant per (entity, entity_id, permission) — duplicates make
     // evaluation order-dependent
     const allPerms = await Permission.list(context, baseId);
-    // eslint-disable-next-line no-console
-    console.log('[F02-Z] dedup body:', JSON.stringify({ e: body.entity, eid: body.entity_id, k: body.permission }), 'list:', JSON.stringify(allPerms.map((p) => ({ e: p.entity, eid: p.entity_id, k: p.permission, id: p.id }))));
     const duplicates = allPerms.filter(
       (p) =>
         p.entity === body.entity &&

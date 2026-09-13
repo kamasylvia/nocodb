@@ -1214,9 +1214,10 @@ export class DatasService {
     });
 
     // [CE-EE] F02 R1: pass the request so per-field edit permission checks
-    // can resolve the submitting user (null made this path fail-open)
-    (param.cookie as any).isPublicForm = true;
-
+    // can resolve the submitting user (null made this path fail-open).
+    // Deliberately NOT flagged isPublicForm — this route serves the view
+    // submit endpoint to authenticated users too; only the anonymous
+    // public/shared form path (public-datas.service) may claim form context.
     return await baseModel.insert(param.body, param.cookie);
   }
 

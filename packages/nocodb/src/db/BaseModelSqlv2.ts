@@ -3054,8 +3054,6 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
       // [CE-EE] F02 R1: per-field edit permissions — the v1 data insert and
       // public form submission converge here and bypass insert.ts, so this
       // path needs its own hook.
-      // eslint-disable-next-line no-console
-      console.log('[F02-Q] nestedInsert reached, ids', JSON.stringify(this.fieldPermissionEntityIds(insertObj, columns)));
       await this.checkPermission(
         {
           entity: PermissionEntity.FIELD,
@@ -10571,9 +10569,6 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
       ? (getProjectRole(user) as ProjectRoles)
       : undefined;
 
-    // eslint-disable-next-line no-console
-    console.log('[F02-R] entry', 'user?', !!user, 'role', projectRole, 'isOwner?', projectRole === ProjectRoles.OWNER);
-
     if (projectRole === ProjectRoles.OWNER) {
       return;
     }
@@ -10608,9 +10603,6 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
           p.entity_id === entityId &&
           p.permission === params.permission,
       );
-
-      // eslint-disable-next-line no-console
-      console.log('[F02-P] check', entityId.slice(0, 6), 'role', projectRole, 'perms', permissions.length, 'grants', grants.length, 'gt', grants[0]?.granted_type);
 
       if (!grants.length) {
         continue;
