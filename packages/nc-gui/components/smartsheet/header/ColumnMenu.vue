@@ -71,7 +71,7 @@ const { fieldsToGroupBy, groupByLimit, groupBy, localGroupBy } = useViewGroupByO
 
 const { isUIAllowed, isMetaReadOnly, isDataReadOnly, sandboxRestrictionReason } = useRoles()
 
-const { showEEFeatures } = useEeConfig()
+const { showEEFeatures, blockTableAndFieldPermissions } = useEeConfig() // [CE-EE] F02
 
 const isLoading = ref<'' | 'hideOrShow' | 'setDisplay'>('')
 
@@ -718,11 +718,11 @@ const onDeleteColumn = () => {
 
     <NcTooltip
       v-if="
-        isEeUI &&
+        // [CE-EE] F02: flag-driven gate instead of isEeUI/showEEFeatures
+        !blockTableAndFieldPermissions &&
         (isUIAllowed('fieldAlter') || !!fieldAlterReason) &&
         !isSqlView &&
-        column.uidt !== UITypes.ForeignKey &&
-        showEEFeatures
+        column.uidt !== UITypes.ForeignKey
       "
       :disabled="!fieldAlterReason && showEditRestrictedColumnTooltip(column) && !isSyncedReadonlyField"
       placement="right"

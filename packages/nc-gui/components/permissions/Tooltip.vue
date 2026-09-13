@@ -17,9 +17,16 @@ interface Props {
   arrow?: boolean
 }
 
-defineProps<Props>()
+// [CE-EE] F02: wire to the real permission resolution — without an entityId
+// the check is meaningless, so keep allow-all in that case (stub behaviour)
+const props = defineProps<Props>()
 
-const isAllowed = computed(() => true)
+const { isAllowed: isPermissionAllowed } = usePermissions()
+
+const isAllowed = computed(() => {
+  if (!props.entityId) return true
+  return isPermissionAllowed(props.entity, props.entityId, props.permission)
+})
 </script>
 
 <template>

@@ -13,6 +13,7 @@ import {
   Extension,
   FileReference,
   MCPToken,
+  Permission,
   Source,
 } from '~/models';
 import Noco from '~/Noco';
@@ -458,6 +459,9 @@ export default class Base implements BaseType {
     // orphan rows including encrypted secrets accumulate
     await BaseVariable.deleteByBaseId(context, baseId, ncMeta);
 
+    // [CE-EE] F02: clean up permission rows for this base
+    await Permission.deleteByBaseId(context, baseId, ncMeta);
+
     // [CE-EE] F07 R2 fix: clean up snapshot registry rows for this base
     await BaseSnapshot.cleanupByBaseIdWithCopies(context, baseId, ncMeta);
 
@@ -711,6 +715,9 @@ export default class Base implements BaseType {
     // [CE-EE] F05 R1 fix: clean up base variables so deleted bases don't
     // leave orphan rows (including encrypted secrets) behind
     await BaseVariable.deleteByBaseId(context, baseId, ncMeta);
+
+    // [CE-EE] F02: clean up permission rows for this base
+    await Permission.deleteByBaseId(context, baseId, ncMeta);
 
     // [CE-EE] F07 R2 fix: clean up snapshot registry rows referencing this base
     await BaseSnapshot.cleanupByBaseIdWithCopies(context, baseId, ncMeta);

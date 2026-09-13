@@ -4307,7 +4307,8 @@
       "baseVariableDeleted": "变量已删除",
       "baseSnapshotCreated": "快照创建已开始",
       "baseSnapshotRestored": "快照已恢复为新 Base",
-      "baseSnapshotDeleted": "快照已删除"
+      "baseSnapshotDeleted": "快照已删除",
+      "permissionUpdated": "权限已更新"
     },
     "subText": {
       "startFromScratch": "从头开始。",

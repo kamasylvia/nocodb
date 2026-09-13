@@ -356,6 +356,9 @@ export interface IBaseModelSqlV2 {
     req: any;
   }): Promise<void>;
 
+  // [CE-EE] F02: map written payload keys to column ids for permission checks
+  fieldPermissionEntityIds(payload: Record<string, any>, columns: any[]): string[];
+
   chunkList(args: {
     pks: string[];
     chunkSize?: number;

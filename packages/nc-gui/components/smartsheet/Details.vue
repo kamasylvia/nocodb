@@ -32,7 +32,9 @@ const indicator = h(LoadingOutlined, {
 const shouldShowTab = computed(() => {
   return {
     field: isUIAllowed('fieldAdd') && !isSqlView.value,
-    permissions: isEeUI && isUIAllowed('fieldAdd') && !isSqlView.value && showEEFeatures.value,
+    // [CE-EE] F02: gate on the fork's feature flag instead of isEeUI/showEEFeatures
+    permissions:
+      !blockTableAndFieldPermissions.value && isUIAllowed('fieldAdd') && !isSqlView.value,
     webhook: isUIAllowed('hookList') && !isSqlView.value,
   }
 })

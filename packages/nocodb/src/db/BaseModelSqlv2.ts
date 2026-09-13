@@ -40,6 +40,8 @@ import {
   parseHelper,
   PermissionEntity,
   PermissionKey,
+  ProjectRoles,
+  getProjectRole,
   RelationTypes,
   resolveCurrentUserToken,
   UITypes,
@@ -80,6 +82,8 @@ import type {
 } from '~/models';
 import { LTARColsUpdater } from '~/db/BaseModelSqlv2/ltar-cols-updater';
 import { BaseModelDelete } from '~/db/BaseModelSqlv2/delete';
+// [CE-EE] F02: runtime import — Permission.isAllowed backs checkPermission
+import { Permission } from '~/models';
 import { ncIsStringHasValue } from '~/db/field-handler/utils/handlerUtils';
 import { AttachmentUrlUploadPreparator } from '~/db/BaseModelSqlv2/attachment-url-upload-preparator';
 import { FieldHandler } from '~/db/field-handler';
@@ -2807,6 +2811,15 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
         columns,
       );
 
+      // [CE-EE] F02: enforce per-field edit permissions on written columns
+      await this.checkPermission({
+        entity: PermissionEntity.FIELD,
+        entityId: this.fieldPermissionEntityIds(updateObj, columns),
+        permission: PermissionKey.RECORD_FIELD_EDIT,
+        user: (cookie as any)?.user,
+        req: cookie,
+      });
+
       await this.validate(data, columns, { typecast });
 
       await this.beforeUpdate(data, cookie);
@@ -3624,6 +3637,24 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
               );
             }),
           );
+
+      // [CE-EE] F02: per-field edit permissions across upsert rows
+      // (raw mode is a trusted internal path and skips)
+      if (!raw) {
+        const entityIds = new Set<string>();
+        for (const d of preparedDatas) {
+          for (const cid of this.fieldPermissionEntityIds(d, columns)) {
+            entityIds.add(cid);
+          }
+        }
+        await this.checkPermission({
+          entity: PermissionEntity.FIELD,
+          entityId: [...entityIds],
+          permission: PermissionKey.RECORD_FIELD_EDIT,
+          user: (cookie as any)?.user,
+          req: cookie,
+        });
+      }
 
       // Link columns are virtual, so `mapAliasToColumn` strips them from the
       // prepared rows — the values survive only on the originals. The split
@@ -4447,6 +4478,24 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
             ),
           );
 
+      // [CE-EE] F02: per-field edit permissions across updated rows
+      // (raw mode is a trusted internal path — import/copy — and skips)
+      if (!raw) {
+        const entityIds = new Set<string>();
+        for (const d of updateDatas) {
+          for (const cid of this.fieldPermissionEntityIds(d, columns)) {
+            entityIds.add(cid);
+          }
+        }
+        await this.checkPermission({
+          entity: PermissionEntity.FIELD,
+          entityId: [...entityIds],
+          permission: PermissionKey.RECORD_FIELD_EDIT,
+          user: (cookie as any)?.user,
+          req: cookie,
+        });
+      }
+
       const prevData = [];
       const newData = [];
       const updatePkValues = [];
@@ -4657,6 +4706,26 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     cookie: NcRequest;
     trx?: Knex.Transaction;
   }) {
+    // [CE-EE] F02: the link write paths (addChild/addLinks/…) each run
+    // checkPermission; this bulk LTAR path bypasses them, so guard the
+    // targeted link columns here.
+    {
+      const columns = await this.model.getColumns(this.context);
+      const entityIds = new Set<string>();
+      for (const d of datas || []) {
+        for (const cid of this.fieldPermissionEntityIds(d, columns)) {
+          entityIds.add(cid);
+        }
+      }
+      await this.checkPermission({
+        entity: PermissionEntity.FIELD,
+        entityId: [...entityIds],
+        permission: PermissionKey.RECORD_FIELD_EDIT,
+        user: (cookie as any)?.user,
+        req: cookie,
+      });
+    }
+
     return LTARColsUpdater({ baseModel: this, logger }).updateLTARCols({
       datas,
       cookie,
@@ -4700,6 +4769,18 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
         this.dbDriver,
         columns,
       );
+
+      // [CE-EE] F02: per-field edit permissions on bulk-updated columns
+      if (!args.skipValidationAndHooks) {
+        await this.checkPermission({
+          entity: PermissionEntity.FIELD,
+          entityId: this.fieldPermissionEntityIds(updateData, columns),
+          permission: PermissionKey.RECORD_FIELD_EDIT,
+          user: (cookie as any)?.user,
+          req: cookie,
+        });
+      }
+
       if (!args.skipValidationAndHooks)
         await this.validate(updateData, columns, { allowSystemColumn });
 
@@ -10426,13 +10507,107 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
 
   async statsUpdate(_args: { count: number }) {}
 
-  async checkPermission(_params: {
+  // [CE-EE] F02: map written payload keys (column_name keyed) to column ids
+  // for per-field permission checks; system/FK/PK columns are exempt.
+  // Public so the extractable insert helpers (db/BaseModelSqlv2/insert.ts)
+  // can reuse it.
+  public fieldPermissionEntityIds(
+    payload: Record<string, any>,
+    columns: any[],
+  ): string[] {
+    if (!payload || !Object.keys(payload).length) {
+      return [];
+    }
+    return Object.keys(payload)
+      .map((cn) => columns?.find((c) => c.column_name === cn))
+      .filter(
+        (c) =>
+          c &&
+          !c.system &&
+          !c.pk &&
+          c.uidt !== UITypes.ForeignKey &&
+          !isSystemColumn(c),
+      )
+      .map((c) => c.id);
+  }
+
+  // [CE-EE] F02: per-field edit permission enforcement. Fail-open when no
+  // grant is configured for the entity (upstream contract — an empty
+  // permission list must never block writes); base owners always pass.
+  // Grants are evaluated by the shared SDK rule (Permission.isAllowed).
+  async checkPermission(params: {
     entity: PermissionEntity;
     entityId: string | string[];
     permission: PermissionKey;
     user: any;
     req: any;
-  }) {}
+  }) {
+    const user = params.user ?? (params.req as any)?.user;
+
+    if (!user) {
+      return;
+    }
+
+    const projectRole = getProjectRole(user) as ProjectRoles;
+
+    if (projectRole === ProjectRoles.OWNER) {
+      return;
+    }
+
+    // request-scoped permission list (MCP preloads req.permissions; data
+    // routes go through Permission.list which handles the extract-ids
+    // pre-seeded empty context array and the per-base NocoCache)
+    const permissions =
+      (params.req as any)?.permissions?.length
+        ? (params.req as any).permissions
+        : await Permission.list(this.context, this.context.base_id);
+
+    if (!permissions?.length) {
+      return;
+    }
+
+    const entityIds = Array.isArray(params.entityId)
+      ? params.entityId
+      : [params.entityId];
+
+    for (const entityId of entityIds) {
+      const grants = permissions.filter(
+        (p) =>
+          p.entity === params.entity &&
+          p.entity_id === entityId &&
+          p.permission === params.permission,
+      );
+
+      if (!grants.length) {
+        continue;
+      }
+
+      const allowed = await Permission.isAllowed(
+        this.context,
+        grants[0],
+        {
+          id: user.id,
+          role: projectRole ?? user.role,
+          is_agent: user.is_agent,
+        },
+      );
+
+      if (!allowed) {
+        let label = entityId;
+        if (params.entity === PermissionEntity.FIELD) {
+          try {
+            const columns = await this.model.getColumns(this.context);
+            label = columns.find((c) => c.id === entityId)?.title ?? entityId;
+          } catch {
+            /* keep id as label */
+          }
+        }
+        NcError.get(this.context).forbidden(
+          `You don't have permission to edit the field ${label}`,
+        );
+      }
+    }
+  }
 
   /**
    * Returns RLS (Row-Level Security) filter conditions for the current user.

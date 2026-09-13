@@ -274,6 +274,12 @@ export const permissionScopes = {
     'baseSnapshotList',
     'baseSnapshotCreate',
     'baseSnapshotRestore',
+
+    // [CE-EE] F02: field edit permissions management (creator+ only)
+    'permissionList',
+    'permissionCreate',
+    'permissionUpdate',
+    'permissionDelete',
     'baseSnapshotDelete',
 
     // [CE-EE] F10: dashboards management (creator+ only)

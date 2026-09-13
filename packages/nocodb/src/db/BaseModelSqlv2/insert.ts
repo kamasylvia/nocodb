@@ -9,6 +9,9 @@ import {
   isLinksOrLTAR,
   NcApiVersion,
   type NcRequest,
+  // [CE-EE] F02: per-field edit permission checks
+  PermissionEntity,
+  PermissionKey,
 } from 'nocodb-sdk';
 import { AttachmentUrlUploadPreparator } from './attachment-url-upload-preparator';
 import type { Knex } from 'knex';
@@ -61,6 +64,15 @@ export const baseModelInsert = (baseModel: IBaseModelSqlV2) => {
       );
 
       await baseModel.validate(insertObj, columns);
+
+      // [CE-EE] F02: per-field edit permissions on inserted columns
+      await baseModel.checkPermission({
+        entity: PermissionEntity.FIELD,
+        entityId: baseModel.fieldPermissionEntityIds(insertObj, columns),
+        permission: PermissionKey.RECORD_FIELD_EDIT,
+        user: (request as any)?.user,
+        req: request,
+      });
 
       if ('beforeInsert' in baseModel) {
         await baseModel.beforeInsert(insertObj, request);
@@ -328,6 +340,17 @@ export const baseModelInsert = (baseModel: IBaseModelSqlV2) => {
               typecast,
             },
           );
+
+          // [CE-EE] F02: per-field edit permissions on inserted columns
+          if (!skipPermissionCheck) {
+            await baseModel.checkPermission({
+              entity: PermissionEntity.FIELD,
+              entityId: baseModel.fieldPermissionEntityIds(insertObj, columns),
+              permission: PermissionKey.RECORD_FIELD_EDIT,
+              user: (cookie as any)?.user,
+              req: cookie,
+            });
+          }
 
           await baseModel.prepareNocoData(insertObj, true, cookie, null, {
             ncOrder: order?.plus(index),

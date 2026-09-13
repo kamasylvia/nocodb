@@ -69,7 +69,8 @@ export const useEeConfig = createSharedComposable(() => {
 
   const blockCellColoring = computed(() => true)
 
-  const blockTableAndFieldPermissions = computed(() => true)
+  // [CE-EE] F02: fork ships field edit permissions — unblocked
+  const blockTableAndFieldPermissions = computed(() => false)
 
   // [CE-EE] F08: fork ships private bases — unblocked
   const blockPrivateBases = computed(() => false)

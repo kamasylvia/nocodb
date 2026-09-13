@@ -121,7 +121,7 @@ const projectPageTab = computed({
   set(value) {
     if (
       value === 'permissions' &&
-      showEEFeatures.value &&
+      blockTableAndFieldPermissions.value && // [CE-EE] F02: flag-driven, upgrade path only when blocked
       showUpgradeToUseTableAndFieldPermissions({ triggerSource: 'project-table-field-permissions' })
     ) {
       return
@@ -178,7 +178,7 @@ watch(
         projectPageTab.value = 'integrations'
       } else if (newVal === 'overview' && isOverviewTabVisible.value) {
         projectPageTab.value = 'overview'
-      } else if (newVal === 'permissions' && !blockTableAndFieldPermissions.value && isEeUI) {
+      } else if (newVal === 'permissions' && !blockTableAndFieldPermissions.value) { // [CE-EE] F02
         projectPageTab.value = 'permissions'
       } else if (newVal === 'base-settings') {
         projectPageTab.value = 'base-settings'
@@ -509,7 +509,8 @@ watch(
           </template>
           <ProjectWorkflowsList :base-id="base.id" />
         </a-tab-pane>
-        <a-tab-pane v-if="isUIAllowed('sourceCreate') && base.id && showEEFeatures" key="permissions">
+        <!-- [CE-EE] F02: flag-driven gate -->
+        <a-tab-pane v-if="isUIAllowed('sourceCreate') && base.id && !blockTableAndFieldPermissions" key="permissions">
           <template #tab>
             <div class="tab-title" data-testid="proj-view-tab__permissions">
               <GeneralIcon icon="ncLock" />

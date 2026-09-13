@@ -6165,7 +6165,8 @@
       "baseVariableDeleted": "Variable deleted",
       "baseSnapshotCreated": "Snapshot creation started",
       "baseSnapshotRestored": "Snapshot restored as a new base",
-      "baseSnapshotDeleted": "Snapshot deleted"
+      "baseSnapshotDeleted": "Snapshot deleted",
+      "permissionUpdated": "Permissions updated"
     },
     "subText": {
       "startFromScratch": "Start from scratch.",
