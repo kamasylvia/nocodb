@@ -1099,6 +1099,20 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
     if (tableIdToCheck) {
       req.context.ncTableId = tableIdToCheck;
     }
+
+    // [CE-EE] F03: v1 data routes carry :tableName (not :tableId/:modelId) —
+    // the if/else chain above only resolves the latter, leaving ncTableId
+    // unset for the /:baseName/:tableName alias family. Resolve here so the
+    // TABLE_VISIBILITY gate has a table to evaluate.
+    if (!req.context.ncTableId && req.params.tableName && req.ncBaseId) {
+      const model = await Model.getByAliasOrId(context, {
+        base_id: req.ncBaseId,
+        aliasOrId: req.params.tableName,
+      });
+      if (model) {
+        req.context.ncTableId = model.id;
+      }
+    }
   }
 }
 

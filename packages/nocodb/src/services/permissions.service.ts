@@ -70,6 +70,12 @@ export class PermissionsService {
         `Permission ${body.permission} is not supported for fields`,
       );
     }
+    if (
+      body.entity !== PermissionEntity.TABLE &&
+      body.entity !== PermissionEntity.FIELD
+    ) {
+      NcError.badRequest(`Entity ${body.entity} is not supported`);
+    }
     if (body.entity === PermissionEntity.TABLE) {
       const tableKeys = [
         PermissionKey.TABLE_RECORD_ADD,

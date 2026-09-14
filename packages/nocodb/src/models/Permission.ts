@@ -392,9 +392,11 @@ export default class Permission {
     }
 
     if (Object.keys(updateObj).length) {
-      // switching to nobody makes granted_role stale — clear it
+      // switching to nobody makes granted_role stale — clear it;
+      // R5: also reject bogus granted_role on NOBODY target (hygiene)
       if (updateObj.granted_type === PermissionGrantedType.NOBODY) {
-        updateObj.granted_role = null as any;
+        delete updateObj.granted_role;
+        delete updateObj.subjects;
       }
       await ncMeta.metaUpdate(
         context.workspace_id,
