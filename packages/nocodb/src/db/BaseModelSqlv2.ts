@@ -10535,23 +10535,27 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     }
     // R5: callers key payloads inconsistently — updateLTARCols re-keys by
     // column title while data paths use column_name — so match both (plus
-    // id) or the hook silently no-ops on title-keyed payloads
-    return Object.keys(payload)
-      .map(
-        (cn) =>
-          columns?.find(
-            (c) => c.column_name === cn || c.title === cn || c.id === cn,
-          ),
-      )
-      .filter(
-        (c) =>
+    // id). R6: a key CAN collide across columns (one column's title ===
+    // another's column_name; both creatable/renameable) — find()-first-match
+    // would let an attacker place a decoy column to hijack the check away
+    // from the restricted one, so collect EVERY hit: checking all matched
+    // columns over-blocks ambiguous keys, which is the safe direction.
+    const ids = new Set<string>();
+    for (const cn of Object.keys(payload)) {
+      for (const c of columns ?? []) {
+        if (
           c &&
+          (c.column_name === cn || c.title === cn || c.id === cn) &&
           !c.system &&
           !c.pk &&
           c.uidt !== UITypes.ForeignKey &&
-          !isSystemColumn(c),
-      )
-      .map((c) => c.id);
+          !isSystemColumn(c)
+        ) {
+          ids.add(c.id);
+        }
+      }
+    }
+    return [...ids];
   }
 
   // [CE-EE] F02: per-field edit permission enforcement. Fail-open when no
