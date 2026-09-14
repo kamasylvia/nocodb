@@ -10,7 +10,7 @@
 | # | 功能 | EE feature flag (`PlanFeatureTypes`) | 状态 |
 |---|---|---|---|
 | F01 | Unique values only | `FEATURE_UNIQUE` | **pass**（commit 744d3161） |
-| F02 | Edit field permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | 待做 |
+| F02 | Edit field permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | **pass**（2026-09-14，实现 4b26d7a23f + 七轮修复终 ca6c81f5a6） |
 | F03 | Data permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | 待做 |
 | F04 | Manage Syncs | `FEATURE_SYNC` | 待做 |
 | F05 | Variables (base variables) | `FEATURE_BASE_VARIABLES` | **pass**（commit 6ab23da0） |
