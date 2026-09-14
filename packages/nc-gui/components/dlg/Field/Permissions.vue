@@ -195,6 +195,10 @@ watch(
       void loadMembers()
     }
   },
+  // R4: Content.vue mounts the dialog with visible already true — without
+  // immediate the grant never loads on first open (stale default + duplicate
+  // POST on save)
+  { immediate: true },
 )
 
 // [CE-EE] F02 R2: when the host view unmounts (e.g. sign-out with the
