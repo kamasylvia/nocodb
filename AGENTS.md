@@ -58,7 +58,7 @@
 ### 3.1 开发数据库（红线）
 
 - **只用 `nocodb-dev` 库；`db=nocodb` 是生产库，严禁连接/读写！**
-- 凭证源：Infisical → project `KDL`（`~/.zcode/.env` 的 `INFISICAL_PROJECT_ID_KDL`）→ secrets `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD`
+- 凭证源：Infisical → project `KDL`（`~/.zcode/.env` 的 `INFISICAL_PROJECT_ID_KDL`）→ secrets `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD`。⚠️ **该项目的 `DB_NAME` secret 值为 `nocodb`（生产库名）**——任何按 secret 流程拼连接串的脚本都会误中生产库！库名必须显式硬编码 `nocodb-dev`，绝不引用 `DB_NAME`（2026-09-14 R5 审查实测误连一次，零写入）
 - **host 解析**：Infisical 里 `DB_HOST=pg18`（QNap 内部容器名），本机解析不了 → **用 `qnap.elf-balance.ts.net`**（Tailscale，5432 端口实测可达）
 - 已验证：PG 18.2，`nocodb-dev` 库存在（首次启动 nocodb 自动建表）
 - 凭证**禁止**写入任何被 git 跟踪的文件；脚本需凭证时运行时经 Infisical CLI 拉取（`.work/ee-ce/dev-backend.sh` 已封装）。红线指的是**真实凭证**（DB 密码/PAT/Infisical secret）；本地 dev 一次性测试账号的口令可写进 `.work` 下的测试脚本

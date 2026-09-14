@@ -260,6 +260,16 @@ export default class Permission {
     ) {
       NcError.get(context).badRequest('subjects are required for user grants');
     }
+    // R5: nobody grants carry no role and no subjects — rejecting the
+    // contradictory payload here makes create/update symmetric
+    if (
+      grant.granted_type === PermissionGrantedType.NOBODY &&
+      grant.subjects?.length
+    ) {
+      NcError.get(context).badRequest(
+        'subjects are not allowed on nobody grants',
+      );
+    }
     if (
       grant.granted_type === PermissionGrantedType.ROLE &&
       grant.granted_role

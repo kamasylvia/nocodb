@@ -10533,8 +10533,16 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     if (!payload || !Object.keys(payload).length) {
       return [];
     }
+    // R5: callers key payloads inconsistently — updateLTARCols re-keys by
+    // column title while data paths use column_name — so match both (plus
+    // id) or the hook silently no-ops on title-keyed payloads
     return Object.keys(payload)
-      .map((cn) => columns?.find((c) => c.column_name === cn))
+      .map(
+        (cn) =>
+          columns?.find(
+            (c) => c.column_name === cn || c.title === cn || c.id === cn,
+          ),
+      )
       .filter(
         (c) =>
           c &&
