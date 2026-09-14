@@ -104,7 +104,12 @@ const loadCurrent = async () => {
     const grant = grantFor(permission)
     const key = permission as string
     const st: KeyState = {
-      option: PermissionOptionValue.EDITORS_AND_UP,
+      // VISIBILITY default is EVERYONE (no grant = everyone can see); other
+      // keys default to EDITORS_AND_UP (no grant = editors and up)
+      option:
+        permission === PermissionKey.TABLE_VISIBILITY
+          ? PermissionOptionValue.EVERYONE
+          : PermissionOptionValue.EDITORS_AND_UP,
       users: [],
       grantId: grant?.id ?? null,
       enforceForForm: grant ? grant.enforce_for_form !== false : true,

@@ -126,8 +126,10 @@ export const usePermissions = () => {
   ): PermissionOptionValue => {
     const grants = grantsFor(entity, entityId, permissionType)
     if (!grants.length) {
-      // no grant = default behaviour (editors and up can edit)
-      return PermissionOptionValue.EDITORS_AND_UP
+      // no grant = default behaviour; TABLE_VISIBILITY defaults to Everyone
+      return entity === PermissionEntity.TABLE
+        ? PermissionOptionValue.EVERYONE
+        : PermissionOptionValue.EDITORS_AND_UP
     }
     const grant = grants[0]
     if (grant.granted_type === 'nobody') {
