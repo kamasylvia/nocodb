@@ -120,8 +120,13 @@ export class PermissionsService {
       NcError.badRequest('Permission does not belong to this base');
     }
 
+    // R4: resolved target type decides — a user grant PATCHed with team
+    // subjects (without re-sending granted_type) must be rejected the same
+    // way as on create
+    const targetType =
+      body.granted_type ?? (existing as Permission).granted_type;
     if (
-      body.granted_type === PermissionGrantedType.USER &&
+      targetType === PermissionGrantedType.USER &&
       body.subjects?.some((s) => s.type === 'team')
     ) {
       NcError.badRequest('Team subjects are not supported yet');

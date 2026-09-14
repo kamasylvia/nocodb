@@ -308,12 +308,17 @@ export default class Permission {
     const existing = await Permission.get(context, permissionId, ncMeta);
 
     // R2: update path enforces the same grant-shape rules as create — a
-    // patched granted_role used to bypass enum/minimumRole validation
+    // patched granted_role used to bypass enum/minimumRole validation.
+    // R4: 'granted_role' key presence semantics — an explicit null/'' must
+    // be validated as-is, never silently replaced by the existing role
+    const grantedRoleForValidation =
+      'granted_role' in data
+        ? ((data.granted_role as string | null) ?? undefined)
+        : ((existing as Permission).granted_role as string | undefined);
     Permission.validateGrantShape(context, {
       granted_type:
         data.granted_type ?? (existing as Permission).granted_type,
-      granted_role:
-        data.granted_role ?? (existing as Permission).granted_role,
+      granted_role: grantedRoleForValidation,
       permission: (existing as Permission).permission,
       subjects: data.subjects,
     });
@@ -351,14 +356,17 @@ export default class Permission {
       );
     }
 
+    // R4: final-stored-value semantics — an explicit null/'' granted_role on
+    // a role grant used to slip past the ?? fallback and land a null-role
+    // row the SDK evaluates deny-all
+    const grantedRoleToStore =
+      'granted_role' in updateObj
+        ? ((updateObj.granted_role as string | null) ?? '')
+        : ((existing as Permission).granted_role as string | undefined);
     if (
       targetType === PermissionGrantedType.ROLE &&
-      !((data.granted_role ??
-        (existing as Permission).granted_role) as string) &&
-      updateObj.granted_type === PermissionGrantedType.ROLE
+      !(grantedRoleToStore as string)
     ) {
-      // nobody → role without naming a role would land a null-role grant the
-      // SDK evaluates deny-all
       NcError.get(context).badRequest(
         'granted_role is required for role grants',
       );

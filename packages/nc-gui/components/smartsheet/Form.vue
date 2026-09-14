@@ -1829,7 +1829,7 @@ const { message: templatedMessage } = useTemplatedMessage(
                             >
                               <template #item="{ element }">
                                 <SmartsheetFormGridField
-                                  v-if="!isLocked || (isLocked && element?.visible)"
+                                  v-if="(!isLocked || (isLocked && element?.visible)) && element?.permissions?.isAllowedToEdit !== false"
                                   :key="element.id"
                                   :field="element"
                                   :is-editable="isEditable"
@@ -1890,7 +1890,7 @@ const { message: templatedMessage } = useTemplatedMessage(
                       >
                         <template #item="{ element }">
                           <div
-                            v-if="!isLocked || (isLocked && element?.visible)"
+                            v-if="(!isLocked || (isLocked && element?.visible)) && element?.permissions?.isAllowedToEdit !== false"
                             :key="element.id"
                             class="nc-editable nc-form-focus-element item relative bg-nc-bg-default p-4 lg:p-6"
                             :class="[

@@ -196,6 +196,15 @@ watch(
     }
   },
 )
+
+// [CE-EE] F02 R2: when the host view unmounts (e.g. sign-out with the
+// dialog open) the ant-modal teleport wrap must not outlive the state —
+// reset visible so the wrap is torn down instead of blocking /signin
+onBeforeUnmount(() => {
+  if (props.visible) {
+    emit('update:visible', false)
+  }
+})
 </script>
 
 <template>
@@ -241,6 +250,7 @@ watch(
               v-model:value="selectedUsers"
               mode="multiple"
               class="w-full"
+              option-filter-prop="label"
               :placeholder="$t('objects.permissions.inlineUserSelector.selectUsers')"
               :options="memberOptions.map((m) => ({ value: m.id, label: m.label }))"
               data-testid="nc-field-permission-users"
