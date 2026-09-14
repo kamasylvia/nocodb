@@ -23,7 +23,7 @@ const { t } = useI18n()
 const { base } = storeToRefs(useBase())
 const basesStore = useBases()
 
-const { permissionOptions, permissions, loadPermissions } = usePermissions()
+const { permissionOptions, permissions, loadPermissions, getPermissionLabel } = usePermissions()
 
 const isSaving = ref(false)
 const members = ref<{ id: string; label: string }[]>([])
@@ -221,7 +221,7 @@ const save = async () => {
       const existingId = st.grantId
       const payload = buildPayload(permission, st)
 
-      if (payload === 'DELETE' || payload === null) {
+      if (!payload || payload === 'DELETE') {
         if (existingId) {
           await $api.instance.delete(`${url}/${existingId}`)
         }
@@ -342,19 +342,13 @@ watch(
               "
               class="flex items-center gap-2"
             >
-              <NcButton
-                type="text"
-                size="small"
-                class="!px-2"
-                :class="states[permission]?.option === opt.value ? '!text-nc-content-brand' : 'text-nc-content-gray-muted'"
+              <div
+                class="flex items-center gap-2 cursor-pointer py-1 px-2 rounded"
                 :data-testid="`nc-table-permission-${permission}-${opt.value}`"
-                @click="
-                  states[permission].option = opt.value;
-                  states[permission].dirty = true
-                "
+                @click="states[permission].option = opt.value; states[permission].dirty = true"
               >
                 <span
-                  class="mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                  class="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
                   :class="states[permission]?.option === opt.value ? 'border-nc-border-brand' : 'border-nc-border-gray-400'"
                 >
                   <span
@@ -362,8 +356,8 @@ watch(
                     class="w-2 h-2 rounded-full bg-nc-fill-brand"
                   />
                 </span>
-                {{ optionLabel(opt.value) }}
-              </NcButton>
+                <span class="text-sm">{{ optionLabel(opt.value) }}</span>
+              </div>
             </div>
 
             <div
