@@ -230,6 +230,13 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
         }
 
         req.ncSourceId = model.source_id;
+
+        // [CE-EE] F03: set ncTableId in the main path — the F03 VISIBILITY
+        // gate (extract-ids.middleware.ts ~:1364) reads this to enforce
+        // TABLE_VISIBILITY on v1/v2 data routes alike. Without this, the v1
+        // /:baseName/:tableName family never sets ncTableId (only
+        // legacyExtractIds did) and the gate is silently skipped.
+        req.context.ncTableId = model.id;
       } else if (viewId) {
         const view =
           (await View.get(context, viewId)) ||
