@@ -74,6 +74,15 @@ export const baseModelInsert = (baseModel: IBaseModelSqlV2) => {
         req: request,
       });
 
+      // [CE-EE] F03: TABLE_RECORD_ADD enforcement on the single-insert path
+      await baseModel.checkPermission({
+        entity: PermissionEntity.TABLE,
+        entityId: baseModel.model.id,
+        permission: PermissionKey.TABLE_RECORD_ADD,
+        user: (request as any)?.user,
+        req: request,
+      });
+
       if ('beforeInsert' in baseModel) {
         await baseModel.beforeInsert(insertObj, request);
       }
@@ -347,6 +356,16 @@ export const baseModelInsert = (baseModel: IBaseModelSqlV2) => {
               entity: PermissionEntity.FIELD,
               entityId: baseModel.fieldPermissionEntityIds(insertObj, columns),
               permission: PermissionKey.RECORD_FIELD_EDIT,
+              user: (cookie as any)?.user,
+              req: cookie,
+            });
+
+            // [CE-EE] F03: TABLE_RECORD_ADD enforcement (bulk path; import/
+            // copy pass skipPermissionCheck and are exempt)
+            await baseModel.checkPermission({
+              entity: PermissionEntity.TABLE,
+              entityId: baseModel.model.id,
+              permission: PermissionKey.TABLE_RECORD_ADD,
               user: (cookie as any)?.user,
               req: cookie,
             });

@@ -981,7 +981,9 @@
         "moreUsers": "+ {count} 更多",
         "selectUsers": "选择用户",
         "selectUsersOrTeams": "选择用户或团队"
-      }
+      },
+      "whoCanAddRecords": "谁可以添加记录",
+      "whoCanDeleteRecords": "谁可以删除记录"
     },
     "deleteAllRecordDlg": {
       "subtitle": "你确定要删除此视图中选中的 {rowCount} 条记录？",

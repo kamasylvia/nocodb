@@ -395,7 +395,7 @@ export class DataTableService {
       NcError.get(context).tableNotFound(param.modelId);
     }
 
-    // Table visibility permission is checked in extract-ids middleware
+    // [CE-EE] F03: TABLE_VISIBILITY is enforced in the extract-ids middleware (permission-based check)
     // No need to check here to avoid circular dependency
 
     let view: View;

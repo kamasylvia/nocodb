@@ -22,7 +22,7 @@ const props = defineProps<Props>()
 const { t } = useI18n()
 const meta = inject(MetaInj, ref())
 
-const { permissions, loadPermissions, getPermissionSummary } = usePermissions()
+const { permissions, loadPermissions, getPermissionSummary, getPermissionSummaryLabel } = usePermissions()
 
 const isModalVisible = ref(false)
 const activeField = ref<{ id: string; title: string; uidt: string } | null>(null)
@@ -49,6 +49,8 @@ const openField = (col: any) => {
   isModalVisible.value = true
 }
 
+const isTablePermDialogVisible = ref(false)
+
 onMounted(async () => {
   await loadPermissions()
 })
@@ -56,12 +58,42 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-col gap-6 pt-4">
-    <!-- Table-level permissions (F03 scope) — defaults for now -->
+    <!-- [CE-EE] F03: table-level data permissions (ADD / DELETE / VISIBILITY) -->
     <div
-      class="rounded-lg border border-nc-border-gray-200 bg-nc-bg-gray-extralight p-4 text-sm text-nc-content-gray-subtle"
-      data-testid="nc-table-permissions-defaults"
+      class="rounded-lg border border-nc-border-gray-200 p-4 text-sm flex flex-col gap-2"
+      data-testid="nc-table-permissions-summary"
     >
-      {{ $t('objects.permissions.resetTablePermissionsDescription') }}
+      <div class="flex items-center justify-between">
+        <div class="font-medium">{{ $t('title.tablePermissions') }}</div>
+        <NcButton
+          type="secondary"
+          size="small"
+          data-testid="nc-table-permissions-configure"
+          @click="isTablePermDialogVisible = true"
+        >
+          {{ $t('general.edit') }}
+        </NcButton>
+      </div>
+      <div
+        v-for="permission of [
+          PermissionKey.TABLE_RECORD_ADD,
+          PermissionKey.TABLE_RECORD_DELETE,
+          PermissionKey.TABLE_VISIBILITY,
+        ]"
+        :key="permission"
+        class="flex items-center justify-between"
+      >
+        <span class="text-nc-content-gray-subtle">
+          {{
+            permission === PermissionKey.TABLE_RECORD_ADD
+              ? $t('objects.permissions.whoCanAddRecords')
+              : permission === PermissionKey.TABLE_RECORD_DELETE
+                ? $t('objects.permissions.whoCanDeleteRecords')
+                : $t('title.tableVisibility')
+          }}
+        </span>
+        <span>{{ getPermissionSummaryLabel(PermissionEntity.TABLE, tableId, permission) }}</span>
+      </div>
     </div>
 
     <!-- Field permissions -->
@@ -103,6 +135,13 @@ onMounted(async () => {
       :field-id="activeField.id"
       :field-title="activeField.title"
       :field-uidt="activeField.uidt"
+    />
+
+    <DlgTablePermissions
+      v-if="tableId"
+      v-model:visible="isTablePermDialogVisible"
+      :table-id="tableId"
+      :title="meta?.title"
     />
   </div>
 </template>

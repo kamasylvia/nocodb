@@ -1154,7 +1154,9 @@
         "moreUsers": "+ {count} more",
         "selectUsers": "Select users",
         "selectUsersOrTeams": "Select users or teams"
-      }
+      },
+      "whoCanAddRecords": "Who can add records",
+      "whoCanDeleteRecords": "Who can delete records"
     },
     "deleteAllRecordDlg": {
       "subtitle": "Are you sure you want to delete all selected {rowCount} records present in this view?",

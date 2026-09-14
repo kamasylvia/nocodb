@@ -32,7 +32,10 @@ import type {
   NestMiddleware,
 } from '@nestjs/common';
 import { resolveShareAccessSource } from '~/helpers/accessSource';
-import { hasModelRoleVisibilityAccess } from '~/helpers/tableHelpers';
+import {
+  hasModelRoleVisibilityAccess,
+  hasTableVisibilityAccess,
+} from '~/helpers/tableHelpers';
 import {
   Base,
   AutomationSection,
@@ -48,6 +51,7 @@ import {
   Integration,
   Model,
   Dashboard,
+  Permission,
   Sort,
   Source,
   SyncSource,
@@ -1351,6 +1355,26 @@ export class AclMiddleware implements NestInterceptor {
       // 404, not 403 — matches `getTableWithAccessibleViews` and keeps the id
       // from confirming that a hidden table exists.
       NcError.get(req.context).tableNotFound(req.context.ncTableId);
+    }
+
+    // [CE-EE] F03: permission-based table visibility (TABLE_VISIBILITY
+    // grants). Runs for anonymous too — the helper falls back to default
+    // visibility for requests without a user. Empty grant list = allow
+    // (fail-open, zero extra cost beyond one indexed meta read).
+    if (req.context?.ncTableId && req.ncBaseId && !isServiceUser(req.user)) {
+      const permissions = await Permission.list(req.context, req.ncBaseId);
+      if (
+        permissions.length &&
+        !(await hasTableVisibilityAccess(
+          req.context,
+          req.context.ncTableId,
+          req.user,
+          permissions,
+        ))
+      ) {
+        // 404, not 403 — hide the existence of the restricted table.
+        NcError.get(req.context).tableNotFound(req.context.ncTableId);
+      }
     }
 
     // check if permission have source level permission restriction

@@ -60,14 +60,8 @@ export class PermissionsService {
       NcError.badRequest(`Invalid permission ${body.permission}`);
     }
 
-    // F02 scope: RECORD_FIELD_EDIT on fields; F03 will extend to table keys.
-    // R1: table-entity grants are rejected outright — with no consumer they
-    // would just be inert rows accepting arbitrary keys.
-    if (body.entity === PermissionEntity.TABLE) {
-      NcError.badRequest(
-        'Table permissions are not supported yet (upcoming data permissions)',
-      );
-    }
+    // F02 scope: RECORD_FIELD_EDIT on fields. F03: TABLE_RECORD_ADD /
+    // TABLE_RECORD_DELETE / TABLE_VISIBILITY on tables.
     if (
       body.entity === PermissionEntity.FIELD &&
       body.permission !== PermissionKey.RECORD_FIELD_EDIT
@@ -75,6 +69,30 @@ export class PermissionsService {
       NcError.badRequest(
         `Permission ${body.permission} is not supported for fields`,
       );
+    }
+    if (body.entity === PermissionEntity.TABLE) {
+      const tableKeys = [
+        PermissionKey.TABLE_RECORD_ADD,
+        PermissionKey.TABLE_RECORD_DELETE,
+        PermissionKey.TABLE_VISIBILITY,
+      ];
+      if (!tableKeys.includes(body.permission)) {
+        NcError.badRequest(
+          `Permission ${body.permission} is not supported for tables`,
+        );
+      }
+      const table = await Model.get(context, body.entity_id);
+      if (!table) {
+        NcError.badRequest(`Table ${body.entity_id} not found`);
+      }
+      if (table.base_id !== baseId) {
+        NcError.badRequest('Table does not belong to this base');
+      }
+      if (table.synced) {
+        NcError.badRequest(
+          'Table permissions are not available for synced tables',
+        );
+      }
     }
 
     // R1: one grant per (entity, entity_id, permission) — duplicates make

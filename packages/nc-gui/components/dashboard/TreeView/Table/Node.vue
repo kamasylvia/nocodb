@@ -61,7 +61,7 @@ const { loadViews: _loadViews } = useViewsStore()
 const { activeView } = storeToRefs(useViewsStore())
 const { isLeftSidebarOpen } = storeToRefs(useSidebarStore())
 
-const { showEEFeatures, showRecordPlanLimitExceededModal } = useEeConfig()
+const { showEEFeatures, showRecordPlanLimitExceededModal, blockTableAndFieldPermissions } = useEeConfig() // [CE-EE] F03
 
 // todo: temp
 const { baseTables } = storeToRefs(useTablesStore())
@@ -426,8 +426,9 @@ const restrictionReasons = computed(() => {
       source.value?.is_meta || source.value?.is_local
         ? sandboxRestrictionReason('tableDuplicate', { source: source.value })
         : null,
+    // [CE-EE] F03: flag-driven gate instead of isEeUI/showEEFeatures
     tablePermission:
-      isEeUI && table.value?.type === 'table' && showEEFeatures.value
+      blockTableAndFieldPermissions.value && table.value?.type === 'table'
         ? sandboxRestrictionReason('tablePermission', { roles: baseRole?.value, source: source.value })
         : null,
     tableRowLevelSecurity:
@@ -456,10 +457,9 @@ const enabledOptions = computed(() => {
         (source.value?.is_meta || source.value?.is_local)) ||
       !!restrictionReasons.value.tableDuplicate,
     tablePermission:
-      (isEeUI &&
+      (!blockTableAndFieldPermissions.value &&
         table.value?.type === 'table' &&
-        isUIAllowed('tablePermission', { roles: baseRole?.value, source: source.value }) &&
-        showEEFeatures.value) ||
+        isUIAllowed('tablePermission', { roles: baseRole?.value, source: source.value })) ||
       !!restrictionReasons.value.tablePermission,
     tableRowLevelSecurity:
       (isEeUI &&
@@ -920,7 +920,7 @@ const isMmTable = computed(() => !!table.value?.mm)
       :base-id="base.id"
     />
     <DlgTablePermissions
-      v-if="table.id && isEeUI"
+      v-if="table.id"
       v-model:visible="isTablePermissionsDialogVisible"
       :table-id="table.id"
       :title="table.title"

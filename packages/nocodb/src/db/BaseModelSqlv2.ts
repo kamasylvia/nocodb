@@ -2247,6 +2247,15 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
   async delByPk(id, _trx?, cookie?) {
     let trx: Knex.Transaction | null = _trx;
     try {
+      // [CE-EE] F03: TABLE_RECORD_DELETE enforcement
+      await this.checkPermission({
+        entity: PermissionEntity.TABLE,
+        entityId: this.model.id,
+        permission: PermissionKey.TABLE_RECORD_DELETE,
+        user: (cookie as any)?.user,
+        req: cookie,
+      });
+
       const source = await this.getSource();
       // retrieve data for handling params in hook
       const data = await this.readRecord({
@@ -3065,6 +3074,19 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
         { isFormContext: !!(request as any)?.isPublicForm },
       );
 
+      // [CE-EE] F03: TABLE_RECORD_ADD enforcement (v1 data insert + public
+      // form submission converge here)
+      await this.checkPermission(
+        {
+          entity: PermissionEntity.TABLE,
+          entityId: this.model.id,
+          permission: PermissionKey.TABLE_RECORD_ADD,
+          user: (request as any)?.user,
+          req: request,
+        },
+        { isFormContext: !!(request as any)?.isPublicForm },
+      );
+
       let rowId = null;
 
       const nestedCols = columns.filter((c) => isLinksOrLTAR(c));
@@ -3844,6 +3866,18 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
         number,
         ((rowId: any, trx?: Knex | Knex.Transaction) => Promise<string>)[]
       > = {};
+
+      // [CE-EE] F03: TABLE_RECORD_ADD enforcement — checked after the
+      // upsert split so pure-update batches are not required to hold ADD
+      if (toInsert.length) {
+        await this.checkPermission({
+          entity: PermissionEntity.TABLE,
+          entityId: this.model.id,
+          permission: PermissionKey.TABLE_RECORD_ADD,
+          user: (cookie as any)?.user,
+          req: cookie,
+        });
+      }
 
       if (nestedCols.length) {
         for (let i = 0; i < toInsert.length; i++) {
@@ -4939,6 +4973,15 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
   ) {
     const columns = await this.model.getColumns(this.context);
 
+    // [CE-EE] F03: TABLE_RECORD_DELETE enforcement (v2 single + bulk delete)
+    await this.checkPermission({
+      entity: PermissionEntity.TABLE,
+      entityId: this.model.id,
+      permission: PermissionKey.TABLE_RECORD_DELETE,
+      user: (cookie as any)?.user,
+      req: cookie,
+    });
+
     // Each record to delete must be an object carrying its primary key(s)
     // (e.g. `{ Id: 123 }`). A bare primitive blows up in `mapAliasToColumn`'s
     // `in` operator — reject it with a 400 rather than a 500 TypeError.
@@ -5499,6 +5542,15 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     } = {},
     { cookie, skip_hooks = false }: { cookie: NcRequest; skip_hooks?: boolean },
   ) {
+    // [CE-EE] F03: TABLE_RECORD_DELETE enforcement (delete-all by filter)
+    await this.checkPermission({
+      entity: PermissionEntity.TABLE,
+      entityId: this.model.id,
+      permission: PermissionKey.TABLE_RECORD_DELETE,
+      user: (cookie as any)?.user,
+      req: cookie,
+    });
+
     return await new BaseModelDelete(this).bulkAll({
       args,
       cookie,
@@ -10637,9 +10689,11 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
           } catch {
             /* keep id as label */
           }
+        } else if (params.entity === PermissionEntity.TABLE) {
+          label = this.model?.title ?? entityId;
         }
         NcError.get(this.context).forbidden(
-          `You don't have permission to edit the field ${label}`,
+          this.permissionDeniedMessage(params.permission, label),
         );
       }
 
@@ -10669,11 +10723,29 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
           } catch {
             /* keep id as label */
           }
+        } else if (params.entity === PermissionEntity.TABLE) {
+          label = this.model?.title ?? entityId;
         }
         NcError.get(this.context).forbidden(
-          `You don't have permission to edit the field ${label}`,
+          this.permissionDeniedMessage(params.permission, label),
         );
       }
+    }
+  }
+
+  // [CE-EE] F03: per-permission denial messages (FIELD keeps the F02 text;
+  // TABLE keys speak in terms of record creation/deletion)
+  private permissionDeniedMessage(
+    permission: PermissionKey,
+    label: string,
+  ): string {
+    switch (permission) {
+      case PermissionKey.TABLE_RECORD_ADD:
+        return `You don't have permission to create records in ${label}`;
+      case PermissionKey.TABLE_RECORD_DELETE:
+        return `You don't have permission to delete records in ${label}`;
+      default:
+        return `You don't have permission to edit the field ${label}`;
     }
   }
 

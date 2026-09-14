@@ -116,15 +116,15 @@ const [useProvideExpandedFormStore, useExpandedFormStore] = useInjectionState(
 
     const { isAllowed } = usePermissions()
 
+    // [CE-EE] F03: dropped the !isEeUI short-circuit — table/field grants
+    // are live via usePermissions once configured
     const isAllowedAddNewRecord = computed(() => {
-      if (!isEeUI) return true
+      if (!meta.value?.id) return true
 
-      return meta.value?.id && isAllowed(PermissionEntity.TABLE, meta.value.id, PermissionKey.TABLE_RECORD_ADD)
+      return isAllowed(PermissionEntity.TABLE, meta.value.id, PermissionKey.TABLE_RECORD_ADD)
     })
 
     const getIsAllowedEditField = (fieldId: string) => {
-      if (!isEeUI) return true
-
       return fieldId && isAllowed(PermissionEntity.FIELD, fieldId, PermissionKey.RECORD_FIELD_EDIT)
     }
 
