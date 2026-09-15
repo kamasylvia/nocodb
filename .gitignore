@@ -135,7 +135,14 @@ scripts/.onprem-dev-keys/
 # Northwind runbook demo receiver log
 .demo-receiver.jsonl
 
-# [CE-EE] fork process files (task books, review reports, logs) — never commit
-.work/
+# [CE-EE] fork process files — track state/reports/scripts for cross-machine
+# continuation (2026-09-15 user instruction); heavy artifacts stay ignored
+.work/*
+!.work/TODO.md
+!.work/GOAL-STATE-automation-prompt.txt
+!.work/ee-ce
+.work/ee-ce/*
+!.work/ee-ce/*.md
+!.work/ee-ce/*.sh
 # [CE-EE] noco-integrations local layout shim (symlink core -> packages/core)
 packages/noco-integrations/packages/

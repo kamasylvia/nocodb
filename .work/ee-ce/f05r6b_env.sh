@@ -1,0 +1,1 @@
+export PGPW='postgres'
