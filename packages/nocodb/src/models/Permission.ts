@@ -392,11 +392,13 @@ export default class Permission {
     }
 
     if (Object.keys(updateObj).length) {
-      // switching to nobody makes granted_role stale — clear it;
-      // R5: also reject bogus granted_role on NOBODY target (hygiene)
+      // [CE-EE] F03: switching to nobody clears the stale granted_role column
+      // (write null, not omit — omitting leaves the previous role on the row
+      // and a later nobody→role PATCH would silently revive it via the
+      // existing-value fallback). subjects are never part of updateObj
+      // (not in extractProps above); they are rebuilt below.
       if (updateObj.granted_type === PermissionGrantedType.NOBODY) {
-        delete updateObj.granted_role;
-        delete updateObj.subjects;
+        updateObj.granted_role = null;
       }
       await ncMeta.metaUpdate(
         context.workspace_id,
@@ -425,8 +427,14 @@ export default class Permission {
     }
 
     // R3: nobody carries no subjects — enforced after the rebuild above so
-    // the invariant holds regardless of payload order
-    if (targetType === PermissionGrantedType.NOBODY) {
+    // the invariant holds regardless of payload order. Same hygiene for
+    // role targets: subjects only matter on user grants, so a user→role
+    // switch that didn't touch subjects explicitly still drops the stale
+    // subject rows (the SDK evaluator ignores them, but they are dead data).
+    if (
+      targetType === PermissionGrantedType.NOBODY ||
+      (targetType === PermissionGrantedType.ROLE && !data.subjects)
+    ) {
       await ncMeta.metaDelete(
         context.workspace_id,
         context.base_id,

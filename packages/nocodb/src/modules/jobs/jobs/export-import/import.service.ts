@@ -46,6 +46,7 @@ import {
   Hook,
   LinkToAnotherRecordColumn,
   Model,
+  Permission,
   Source,
   View,
 } from '~/models';
@@ -170,14 +171,41 @@ export class ImportService {
   }
 
   async importPermissions(
-    _context: NcContext,
+    context: NcContext,
     _param: {
       permissions: any[];
       getIdOrExternalId: (id: string) => string | undefined;
       req: NcRequest;
     },
   ) {
-    //  create permissions
+    // [CE-EE] F02/F03: re-create permission grants carried by an exported
+    // table (duplicate / snapshot restore). entity_id arrives serialized —
+    // resolve it to the freshly created table/column id before insert.
+    // Per-grant try/catch: a stale or invalid grant must not abort the
+    // whole base import.
+    for (const permission of _param.permissions ?? []) {
+      try {
+        const entityId = _param.getIdOrExternalId(permission.entity_id);
+        if (!entityId || !permission.entity || !permission.permission) continue;
+
+        await Permission.insert(context, {
+          entity: permission.entity,
+          entity_id: entityId,
+          permission: permission.permission,
+          enforce_for_form: permission.enforce_for_form,
+          enforce_for_automation: permission.enforce_for_automation,
+          granted_type: permission.granted_type,
+          granted_role: permission.granted_role,
+          subjects: (permission.subjects ?? [])
+            .filter((s: any) => s?.type === 'user' && s?.id)
+            .map((s: any) => ({ type: 'user' as const, id: s.id })),
+        });
+      } catch (e) {
+        this.logger.debug(
+          `importPermissions: skipped permission grant (${e?.message})`,
+        );
+      }
+    }
   }
 
   async importModels(

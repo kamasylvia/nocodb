@@ -34,6 +34,10 @@ type KeyState = {
   grantId: string | null
   enforceForForm: boolean
   dirty: boolean
+  // granted_role the loaded grant carried (role-type grants only) — lets
+  // "Creators & up" round-trip an owner-role grant without silently
+  // downgrading it to creator on save
+  originalRole?: string
 }
 
 // per-key editor state (TABLE_RECORD_ADD / TABLE_RECORD_DELETE / TABLE_VISIBILITY)
@@ -127,6 +131,7 @@ const loadCurrent = async () => {
         st.option =
           OPTION_FOR_ROLE[grant.granted_role as PermissionRole] ??
           PermissionOptionValue.EDITORS_AND_UP
+        st.originalRole = grant.granted_role as string
       }
     }
     states.value[key] = st
@@ -157,9 +162,12 @@ const buildPayload = (
         subjects: st.users.map((id) => ({ type: 'user', id })),
       }
     }
+    // owner-role grants display as "Creators & up" (no dedicated option);
+    // preserve the original role on save instead of downgrading to creator
     const role = {
       [PermissionOptionValue.VIEWERS_AND_UP]: PermissionRole.VIEWER,
-      [PermissionOptionValue.CREATORS_AND_UP]: PermissionRole.CREATOR,
+      [PermissionOptionValue.CREATORS_AND_UP]:
+        st.originalRole === 'owner' ? PermissionRole.OWNER : PermissionRole.CREATOR,
     }[st.option as PermissionOptionValue]
     if (!role) return undefined
     return {
@@ -192,7 +200,8 @@ const buildPayload = (
     }
   }
   const role = {
-    [PermissionOptionValue.CREATORS_AND_UP]: PermissionRole.CREATOR,
+    [PermissionOptionValue.CREATORS_AND_UP]:
+      st.originalRole === 'owner' ? PermissionRole.OWNER : PermissionRole.CREATOR,
   }[st.option as PermissionOptionValue]
   if (!role) return undefined
   return {
@@ -209,6 +218,26 @@ const save = async () => {
   isSaving.value = true
   try {
     const url = `/api/v2/meta/bases/${base.value.id}/permissions`
+
+    // validate before writing anything — a dirty SPECIFIC_USERS key with no
+    // user selected must abort the whole save (matches the Field dialog),
+    // not be silently skipped while a success toast fires
+    for (const permission of [
+      PermissionKey.TABLE_RECORD_ADD,
+      PermissionKey.TABLE_RECORD_DELETE,
+      PermissionKey.TABLE_VISIBILITY,
+    ]) {
+      const st = states.value[permission as string]
+      if (
+        st?.dirty &&
+        st.option === PermissionOptionValue.SPECIFIC_USERS &&
+        !st.users.length
+      ) {
+        isSaving.value = false
+        message.error(t('labels.selectUsers'))
+        return
+      }
+    }
 
     for (const permission of [
       PermissionKey.TABLE_RECORD_ADD,
@@ -336,10 +365,6 @@ watch(
             :key="opt.value"
           >
             <div
-              v-if="
-                opt.value !== PermissionOptionValue.SPECIFIC_USERS ||
-                states[permission]?.option === PermissionOptionValue.SPECIFIC_USERS
-              "
               class="flex items-center gap-2"
             >
               <div
@@ -375,6 +400,7 @@ watch(
                 :placeholder="$t('objects.permissions.inlineUserSelector.selectUsers')"
                 :options="members.map((m) => ({ value: m.id, label: m.label }))"
                 :data-testid="`nc-table-permission-${permission}-users`"
+                @change="states[permission].dirty = true"
               />
             </div>
           </template>

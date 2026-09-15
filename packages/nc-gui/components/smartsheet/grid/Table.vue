@@ -105,6 +105,11 @@ const scrollParent = inject(ScrollParentInj, ref<undefined>())
 
 const { isPkAvail, isSqlView, eventBus, isViewOperationsAllowed } = useSmartsheetStoreOrThrow()
 
+// [CE-EE] F03: hoisted to setup top — calling usePermissions() inside the
+// isAddingEmptyRowAllowed computed re-ran composable setup (and its watch
+// registration) on every recompute
+const { isAllowed: isTablePermissionAllowed } = usePermissions()
+
 const { isColumnSortedOrFiltered, appearanceConfig: filteredOrSortedAppearanceConfig } = useColumnFilteredOrSorted()
 
 const { isViewDataLoading, isPaginationLoading } = storeToRefs(useViewsStore())
@@ -340,7 +345,7 @@ const isAddingEmptyRowAllowed = computed(
     !isPublicView.value &&
     !meta.value?.mm &&
     // [CE-EE] F03: TABLE_RECORD_ADD grant (fail-open when unconfigured)
-    (usePermissions().isAllowed(
+    (isTablePermissionAllowed(
       PermissionEntity.TABLE,
       meta.value?.id,
       PermissionKey.TABLE_RECORD_ADD,

@@ -339,6 +339,20 @@ export const baseModelInsert = (baseModel: IBaseModelSqlV2) => {
         const nestedCols = columns.filter((c) => isLinksOrLTAR(c));
         const attachmentCols = columns.filter((c) => isAttachment(c));
 
+        // [CE-EE] F03: TABLE_RECORD_ADD enforcement (bulk path; import/copy
+        // pass skipPermissionCheck and are exempt). Row-independent — checked
+        // once here rather than per row, else each row pays a full
+        // Permission.list round-trip.
+        if (!skipPermissionCheck) {
+          await baseModel.checkPermission({
+            entity: PermissionEntity.TABLE,
+            entityId: baseModel.model.id,
+            permission: PermissionKey.TABLE_RECORD_ADD,
+            user: (cookie as any)?.user,
+            req: cookie,
+          });
+        }
+
         for (const [index, d] of datas.entries()) {
           const insertObj = await baseModel.handleValidateBulkInsert(
             d,
@@ -356,16 +370,6 @@ export const baseModelInsert = (baseModel: IBaseModelSqlV2) => {
               entity: PermissionEntity.FIELD,
               entityId: baseModel.fieldPermissionEntityIds(insertObj, columns),
               permission: PermissionKey.RECORD_FIELD_EDIT,
-              user: (cookie as any)?.user,
-              req: cookie,
-            });
-
-            // [CE-EE] F03: TABLE_RECORD_ADD enforcement (bulk path; import/
-            // copy pass skipPermissionCheck and are exempt)
-            await baseModel.checkPermission({
-              entity: PermissionEntity.TABLE,
-              entityId: baseModel.model.id,
-              permission: PermissionKey.TABLE_RECORD_ADD,
               user: (cookie as any)?.user,
               req: cookie,
             });
