@@ -2,10 +2,13 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-15 21:xx（**复审阵容分时配置生效**；R4 已按 18–23 外部阵容派遣）
+- 更新时间: 2026-09-15 23:00（**R4 五路 subagents 在飞**；外部阵容首秀失败已按用户指令临时停用）
+- **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
+- **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
+- **后端状态**：rspack watcher 停用，改为直跑 `node dist/main.js`（主会话 22:33 拉起，pid 见 ps）；外置盘冷缓存致模块加载极慢（~10min+），各路轮询等 200 即可；**热修后需手动重启该进程**
 - **分支布局（2026-09-15 用户指令）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游严格一致**（=origin/develop=243acea3b9，勿在 develop 提交）——另一台机器续作：clone 后切 main
-- **复审阵容分时（2026-09-15 用户指令，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（R4 外部阵容 5 路在飞；巡检 automation 每整点触发）
+- **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
+- LOCK: active（R4 五路 subagents 在飞：lane1-4 新派 + lane5 保留；巡检 automation 每整点触发）
 - 阶段: F03 R4 待重派（连击 0/3）
 - 已 pass 功能: F05（6ab23da0）、F01（744d3161）、F07（bc409929da）、F10（ab31f60fe3）、F08（终 e737f8f3ec）
 - 当前功能: F03 Data permissions
