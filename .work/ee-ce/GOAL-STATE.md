@@ -2,9 +2,10 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-15（**用户指令暂停**：R4 五路派遣 ~1min 后全数中止，待恢复指令重派）
+- 更新时间: 2026-09-15 21:xx（**复审阵容分时配置生效**；R4 已按 18–23 外部阵容派遣）
 - **分支布局（2026-09-15 用户指令）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游严格一致**（=origin/develop=243acea3b9，勿在 develop 提交）——另一台机器续作：clone 后切 main
-- LOCK: idle（用户暂停；恢复时重派 R4 五路，prompt 正本见会话记录，规格同 R3 报告所载）
+- **复审阵容分时（2026-09-15 用户指令，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
+- LOCK: active（R4 外部阵容 5 路在飞；巡检 automation 每整点触发）
 - 阶段: F03 R4 待重派（连击 0/3）
 - 已 pass 功能: F05（6ab23da0）、F01（744d3161）、F07（bc409929da）、F10（ab31f60fe3）、F08（终 e737f8f3ec）
 - 当前功能: F03 Data permissions
