@@ -1,2 +1,0 @@
-{"sequence":1,"timestamp":"2026-09-14T13:31:24.123478+08:00","event_type":"state_change","task_id":"20260914-052107.086432000-cline-pass-mimo-v2.5--bash-2","session_id":"20260914-052107.086432000-cline-pass-mimo-v2.5","state":"running","runtime_state":"alive"}
-{"sequence":2,"timestamp":"2026-09-14T13:31:29.844304+08:00","event_type":"state_change","task_id":"20260914-052107.086432000-cline-pass-mimo-v2.5--bash-2","session_id":"20260914-052107.086432000-cline-pass-mimo-v2.5","state":"failed","runtime_state":"exited","error_code":"job_failed"}
