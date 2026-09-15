@@ -14,7 +14,7 @@
 
 1. 读 `.work/ee-ce/GOAL-STATE.md` 与 `.work/TODO.md`：当前功能/轮次/连击/在飞路。
 2. 环境自愈（同类恢复，静默执行）：
-   - `curl -s http://localhost:8080/api/v1/health` 非 200 → `bash .work/ee-ce/dev-backend.sh` 拉起。
+   - `curl -s http://localhost:8080/api/v1/health` 非 200 → `bash .work/ee-ce/dev-backend-internal.sh` 拉起（后端运行时副本在 ~/.nocodb-run 内盘，勿用旧 dev-backend.sh/rspack）。
    - 前端 `curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/` 非 200 → `cd packages/nc-gui && nohup pnpm dev > /tmp/nc-gui-dev.log 2>&1 &`。
 
 ## 第 2 步：在飞路存活巡检

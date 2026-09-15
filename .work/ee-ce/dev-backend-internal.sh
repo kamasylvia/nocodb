@@ -1,0 +1,30 @@
+#!/bin/bash
+# [CE-EE] 后端直跑脚本（内盘副本版，2026-09-15）
+# 背景：外置盘（UNITEK）文件缓存冷后 node_modules 随机读为小时级，故运行时副本放内置 SSD。
+# 用法: .work/ee-ce/dev-backend-internal.sh [start|stop|status]
+# 同步：源码修改后在 UNITEK 提交，然后 rsync 到 ~/.nocodb-run 并重启本脚本（热修流程）。
+set -euo pipefail
+RUN=/Users/kamasylvia/.nocodb-run
+LOG=/tmp/nocodb-internal.log
+
+case "${1:-start}" in
+  stop)
+    pkill -f "$RUN/packages/nocodb/dist/main.js" 2>/dev/null && echo "stopped" || echo "not running"
+    ;;
+  status)
+    pgrep -f "$RUN/packages/nocodb/dist/main.js" >/dev/null && echo "running" || echo "not running"
+    ;;
+  start|*)
+    pgrep -f "$RUN/packages/nocodb/dist/main.js" >/dev/null && { echo "already running"; exit 0; }
+    set -a; . "$HOME/.zcode/.env"; set +a
+    export INFISICAL_DOMAIN="$INFISICAL_URL"
+    TOKEN=$(infisical login --method universal-auth --client-id "$INFISICAL_CLIENT_ID" --client-secret "$INFISICAL_CLIENT_SECRET" --plain 2>/dev/null)
+    eval $(infisical secrets --token "$TOKEN" --projectId "$INFISICAL_PROJECT_ID_KDL" --env "$INFISICAL_ENVIRONMENT" --recursive --plain 2>/dev/null | grep -E "^DB_(USER|PASSWORD|PORT)=" | sed 's/^/export /')
+    cd "$RUN/packages/nocodb"
+    NODE_ENV=development NC_DISABLE_TELE=true ENTRYPOINT=src/run/docker \
+      NC_DB="pg://qnap.elf-balance.ts.net:${DB_PORT:-5432}?u=${DB_USER}&p=${DB_PASSWORD}&d=nocodb-dev" \
+      NC_CONNECTION_ENCRYPT_KEY="dev-only-ce-ee-encrypt-key-0f1e2d3c" \
+      nohup node dist/main.js > "$LOG" 2>&1 &
+    echo "started pid=$! (log: $LOG)"
+    ;;
+esac
