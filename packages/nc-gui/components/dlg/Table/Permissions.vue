@@ -234,7 +234,7 @@ const save = async () => {
         !st.users.length
       ) {
         isSaving.value = false
-        message.error(t('labels.selectUsers'))
+        message.error(t('objects.permissions.inlineUserSelector.selectUsers'))
         return
       }
     }

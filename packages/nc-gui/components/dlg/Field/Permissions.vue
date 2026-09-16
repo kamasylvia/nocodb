@@ -128,7 +128,9 @@ const save = async () => {
         payload.granted_type = PermissionGrantedType.NOBODY
       } else if (selected.value === PermissionOptionValue.SPECIFIC_USERS) {
         if (!selectedUsers.value.length) {
-          message.error(t('labels.selectUsers'))
+          // [CE-EE] F02 fix: 'labels.selectUsers' does not exist in lang
+          // files — use the real key so the toast isn't a raw key
+          message.error(t('objects.permissions.inlineUserSelector.selectUsers'))
           isSaving.value = false
           return
         }
