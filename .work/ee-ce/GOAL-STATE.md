@@ -2,13 +2,20 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-16 08:0x（**R4 收官 5/5 → 连击 1/3；R5 五路在飞**）
+- 更新时间: 2026-09-16 11:1x（**R5 收官 5/5 全 PASS → 连击 2/3；修复批已落；R6 五路在飞**）
 - **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-15 用户指令）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游严格一致**（=origin/develop=243acea3b9，勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（R5 五路 subagents 在飞；巡检 automation 每整点触发）
+- LOCK: active（R6 五路 subagents 在飞；巡检 automation 每整点触发）
+
+## R5 收官（2026-09-16 11:10，5/5 全 PASS 0 error → 清洁轮 连击 2/3）
+
+- lane1/2/3/4/5 全 PASS；lane1 的 E3（bundle 陈旧致 enforcement 失效）经主会话活体三连探针驳回（200 fail-open/403/404），系其自身测试装置问题
+- 修复批（ca8bb77622，R5 minors 全清）：①getPermissionSummary 仅 VISIBILITY 回退 Everyone ②visibilityOptions 恢复 CREATORS_AND_UP（owner 型 VISIBILITY 显示）③NOBODY+显式 granted_role 400（create+update 对称）④permissions.service 补 [CE-EE] 标记 ⑤dev-backend-internal.sh 绝对路径启动（修复 stop pkill 永不匹配、老实例钉死 8080 的隐患——本轮已发现并纠正一次）
+- 环境教训入库：R5-lane4「psql 提全局 super 被 checkPermission owner 直通→enforcement 全放行假 FAIL」；「UI/API 同账号 token_version 互踢」
+- R6 任务书 = r5-lane-prompt.md 增量（回归 R5 修复批 4 项）
 
 ## R4 收官（2026-09-16 08:00，5/5 报告）
 
