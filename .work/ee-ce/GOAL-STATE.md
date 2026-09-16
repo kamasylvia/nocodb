@@ -2,13 +2,23 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-15 23:00（**R4 五路 subagents 在飞**；外部阵容首秀失败已按用户指令临时停用）
+- 更新时间: 2026-09-16 08:0x（**R4 收官 5/5 → 连击 1/3；R5 五路在飞**）
 - **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-15 用户指令）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游严格一致**（=origin/develop=243acea3b9，勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（R4 五路 subagents 在飞：lane1-4 新派 + lane5 保留；巡检 automation 每整点触发）
+- LOCK: active（R5 五路 subagents 在飞；巡检 automation 每整点触发）
+
+## R4 收官（2026-09-16 08:00，5/5 报告）
+
+- verdict：lane1/2/3/4 **PASS**（0 error）；lane5 报 1 error + 1 minor
+- **E1（成员下拉 8 条截断）驳回**：主会话逐层实测（store→controller→service→PagedResponseImpl→getUsersList→活体 API）证伪——端点从不切片、返回全量 739/740、邀请后缓存失效正常；lane5 观察系脏库环境噪声（731/739 为历轮测试账号）。相应 limit 透传改动已整体撤销（建立在误诊上的死代码）
+- **M1（labels.selectUsers 裸键，4 路命中）已修**：Table+Field 两弹窗改用 objects.permissions.inlineUserSelector.selectUsers（F02 存量同款一并修）
+- 质量门：tsc 0 / jest 26/26；内盘 dist 重建同步重启（热修流程验证通过）
+- **R4 = 0 error 清洁轮 → 连击 1/3**
+- R5 = R4 同规格 + 增量回归（i18n 键文案 + 测试隔离纪律 + 已知非问题清单），任务书 .work/ee-ce/r5-lane-prompt.md
+- backlog 增量：⑪F02 FIELD 逐行 Permission.list 放大（bulk 有 grant 时 ~2x，建议仿 bulkUpdate 聚合提出行外）⑫v2 POST /records?upsert=true 忽略 upsert 旗标（上游）⑬duplicate 数据拷贝单表 >1000 行 job 失败（上游 chunk 交互）
 - 阶段: F03 R4 待重派（连击 0/3）
 - 已 pass 功能: F05（6ab23da0）、F01（744d3161）、F07（bc409929da）、F10（ab31f60fe3）、F08（终 e737f8f3ec）
 - 当前功能: F03 Data permissions
