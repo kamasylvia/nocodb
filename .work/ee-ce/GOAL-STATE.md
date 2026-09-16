@@ -8,7 +8,14 @@
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（R6 五路 subagents 在飞；巡检 automation 每整点触发）
+- LOCK: active（F04 R3 五路 subagents 在飞；巡检 automation 每整点触发）
+
+## F04 R2 收官（2026-09-16 20:3x，2 error → 连击重置 0/3；修复已落；R3 在飞）
+
+- verdict：lane2/3/5 PASS；**lane4 error = resync close 回落读陈旧 useJobs 缓存**（"Syncing…" 卡 74s+ 双复现）；**lane1 error = 跨账号 Resync 死锁**（jobs/listen 属主门控 404，协作者面板死锁）——两案同根：poller 完成跟踪不可靠
+- **修复（并入 dbfefe5a63，内容已验证在 HEAD）**：弃用 $poller，改 3s jobs-list watchdog（loadJobsForBase 刷新 + COMPLETED/FAILED 显式终态 + 90s 超时兜底 syncsSyncTimeout），owner/协作者一致可用；$poller 依赖移除
+- 教训：① husky 空 commit 报 exit 1 易误读为修复失败（实为无剩余改动）；② dbfefe5a63 提交信息未提 watchdog 重写（内容为准，不追改）
+- R3 任务书含 watchdog 强测项：owner 伪凭证秒败 ≥3 次、协作者死锁场景专项、交替多轮
 
 ## F03 PASS（2026-09-16 13:00，R4/R5/R6 连续清洁，连击 3/3）
 
