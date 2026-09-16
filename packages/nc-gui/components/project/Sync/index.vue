@@ -144,13 +144,16 @@ const resync = async (row: SyncRow) => {
     message.info(t('labels.syncsSyncing'))
     return
   }
+  // [CE-EE] F04 R4(lane3): set the lock optimistically BEFORE the trigger
+  // call — the await window otherwise lets a double-click fire a second
+  // request (backend job dedup catches it, but the UI shouldn't rely on it)
+  syncingId.value = row.id
+  syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncing') } }
   try {
     const jobData: any = await $api.internal.postOperation(wsId.value, baseId.value, {
       operation: 'atImportTrigger',
       syncId: row.id,
     }, {})
-    syncingId.value = row.id
-    syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncing') } }
 
     // [CE-EE] F04 R2(lane1/lane4): track the resync via jobs-list polling —
     // the $poller websocket is unusable here (jobs/listen is owner-gated, so
