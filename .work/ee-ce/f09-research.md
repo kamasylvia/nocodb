@@ -262,3 +262,13 @@
 - 依据：Table Sync 数据通路在 fork 内真实存在（下游全通），P1 交付即达 pass 标准；Custom Sync 与 F04 App Sync 同构（抽象框架零实现零连接器）
 - F04 保留的 SyncConfig 预埋维持休眠（与 Table Sync 零耦合），F09 不激活
 - 可逆性：P2/P3/P4 按本报告分阶段估算随时可追加预算重启
+
+---
+
+## 范围裁定（2026-09-17 03:5x，主会话依研究推荐采纳；分阶段可逆）
+
+**裁定：F09 = P1（Table Sync manual 档最小闭环）为交付范围；P2/P3/P4 记分阶段 backlog；Custom Sync 整段裁记 fork 限制。**
+
+- 依据：Table Sync 数据通路在 fork 内真实存在（下游全通），P1 交付即达 pass 标准；Custom Sync 与 F04 App Sync 同构（抽象框架零实现零连接器）
+- F04 保留的 SyncConfig 预埋维持休眠（与 Table Sync 零耦合），F09 不激活
+- 可逆性：P2/P3/P4 按本报告分阶段估算随时可追加预算重启
