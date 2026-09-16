@@ -126,8 +126,11 @@ export const usePermissions = () => {
   ): PermissionOptionValue => {
     const grants = grantsFor(entity, entityId, permissionType)
     if (!grants.length) {
-      // no grant = default behaviour; TABLE_VISIBILITY defaults to Everyone
-      return entity === PermissionEntity.TABLE
+      // [CE-EE] F03 R5(lane2/lane3): no grant = default behaviour. Only
+      // TABLE_VISIBILITY defaults to Everyone; ADD/DELETE default to the
+      // editors-and-up ACL floor — showing "Everyone" there contradicted
+      // the dialog default and actual enforcement.
+      return permissionType === PermissionKey.TABLE_VISIBILITY
         ? PermissionOptionValue.EVERYONE
         : PermissionOptionValue.EDITORS_AND_UP
     }

@@ -55,8 +55,10 @@ const addDeleteOptions = computed(() =>
 const visibilityOptions = computed(() =>
   permissionOptions.filter(
     (o) =>
+      // [CE-EE] F03 R5(lane3): keep CREATORS_AND_UP selectable — owner-role
+      // VISIBILITY grants display via it (originalRole preserved on save),
+      // and creators-and-up visibility is a valid buildPayload target
       o.value !== PermissionOptionValue.EDITORS_AND_UP &&
-      o.value !== PermissionOptionValue.CREATORS_AND_UP &&
       o.value !== PermissionOptionValue.COMMENTERS_AND_UP,
   ),
 )

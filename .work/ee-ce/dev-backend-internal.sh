@@ -24,7 +24,7 @@ case "${1:-start}" in
     NODE_ENV=development NC_DISABLE_TELE=true ENTRYPOINT=src/run/docker \
       NC_DB="pg://qnap.elf-balance.ts.net:${DB_PORT:-5432}?u=${DB_USER}&p=${DB_PASSWORD}&d=nocodb-dev" \
       NC_CONNECTION_ENCRYPT_KEY="dev-only-ce-ee-encrypt-key-0f1e2d3c" \
-      nohup node dist/main.js > "$LOG" 2>&1 &
+      nohup node "$RUN/packages/nocodb/dist/main.js" > "$LOG" 2>&1 &
     echo "started pid=$! (log: $LOG)"
     ;;
 esac

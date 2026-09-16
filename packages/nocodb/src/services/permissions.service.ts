@@ -76,6 +76,7 @@ export class PermissionsService {
     ) {
       NcError.badRequest(`Entity ${body.entity} is not supported`);
     }
+    // [CE-EE] F03: TABLE-entity grant validation (R4 lane5: marker hygiene)
     if (body.entity === PermissionEntity.TABLE) {
       const tableKeys = [
         PermissionKey.TABLE_RECORD_ADD,

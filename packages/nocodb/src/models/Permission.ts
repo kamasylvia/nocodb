@@ -207,6 +207,17 @@ export default class Permission {
         'granted_role is required for role grants',
       );
     }
+    // [CE-EE] F03 R5(lane3): nobody grants carry no role — an explicit
+    // granted_role on a nobody grant is a contradictory payload (same
+    // symmetry as nobody+subjects); previously any junk string landed
+    if (
+      insertObj.granted_type === PermissionGrantedType.NOBODY &&
+      insertObj.granted_role
+    ) {
+      NcError.get(context).badRequest(
+        'granted_role is not allowed on nobody grants',
+      );
+    }
     Permission.validateGrantShape(
       context,
       {
@@ -363,6 +374,14 @@ export default class Permission {
     if (targetType === PermissionGrantedType.NOBODY && data.subjects?.length) {
       NcError.get(context).badRequest(
         'subjects are not allowed on nobody grants',
+      );
+    }
+    // [CE-EE] F03 R5(lane3): symmetric hygiene — an explicitly carried
+    // granted_role on a nobody target is contradictory junk (transitions
+    // without the key are unaffected; the stale column is cleared below)
+    if (targetType === PermissionGrantedType.NOBODY && data.granted_role) {
+      NcError.get(context).badRequest(
+        'granted_role is not allowed on nobody grants',
       );
     }
 
