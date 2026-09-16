@@ -2,7 +2,7 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-16 11:1x（**R5 收官 5/5 全 PASS → 连击 2/3；修复批已落；R6 五路在飞**）
+- 更新时间: 2026-09-16 13:0x（**F03 PASS**：R4/R5/R6 连续清洁，连击 3/3；加固批 51b9637b84 已落；切 F04 Manage Syncs）
 - **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
@@ -10,7 +10,15 @@
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
 - LOCK: active（R6 五路 subagents 在飞；巡检 automation 每整点触发）
 
-## R5 收官（2026-09-16 11:10，5/5 全 PASS 0 error → 清洁轮 连击 2/3）
+## F03 PASS（2026-09-16 13:00，R4/R5/R6 连续清洁，连击 3/3）
+
+- R4：lane5 的 E1（成员下拉截断）经活体三连探针驳回（端点从不切片）；M1 i18n 键 4 路命中已修（5dc25856）
+- R5：5/5 PASS；4 项 minor 修复（ca8bb77622）：getPermissionSummary 仅 VISIBILITY 回退 Everyone、visibilityOptions 恢复 CREATORS_AND_UP、NOBODY+显式 granted_role 400、[CE-EE] 标记
+- R6：5/5 PASS；lane4 的 bulk 1.95x 裁决为 backlog ⑪ 升级（F02 FIELD 逐行检查，非 F03 回归；度量不稳定 0.65-2.3x）
+- **加固批（51b9637b84）**：checkPermission 消费 context.permissions 同请求 memo——bulk 100 行有 grant 场景 ~950-1150ms → ~150-230ms（backlog ⑪ 关闭）；role→user 清残留 granted_role
+- 实现链：7b10716231 + R1-R6 修复（2f5a57b0d3/e1e996283c/0a3e5fdab4/c7a242cdf3/6cc43e0b81/b28787a54a/5dc25856/ca8bb77622/51b9637b84）
+- backlog（pass 后已知项）：⑧sharedView meta 不消费 VISIBILITY（上游面缺失）⑨getPermissionSummary 非 VISIBILITY 键文案（R5 已修）⑩enforce_for_form 弹窗开关（fork 裁剪）⑫v2 upsert 旗标忽略（上游）⑬duplicate >1000 行 job 失败（上游 chunk）⑭owner-VISIBILITY/creator 档显示（R5 已修 CREATORS_AND_UP）⑮role→user 残留 granted_role（R6 已修）⑯v1 DELETE 不存在行 500（上游）⑰F03 TABLE 校验块 marker（R5 已修）
+- ## R5 收官（2026-09-16 11:10，5/5 全 PASS 0 error → 清洁轮 连击 2/3）
 
 - lane1/2/3/4/5 全 PASS；lane1 的 E3（bundle 陈旧致 enforcement 失效）经主会话活体三连探针驳回（200 fail-open/403/404），系其自身测试装置问题
 - 修复批（ca8bb77622，R5 minors 全清）：①getPermissionSummary 仅 VISIBILITY 回退 Everyone ②visibilityOptions 恢复 CREATORS_AND_UP（owner 型 VISIBILITY 显示）③NOBODY+显式 granted_role 400（create+update 对称）④permissions.service 补 [CE-EE] 标记 ⑤dev-backend-internal.sh 绝对路径启动（修复 stop pkill 永不匹配、老实例钉死 8080 的隐患——本轮已发现并纠正一次）
@@ -28,8 +36,8 @@
 - backlog 增量：⑪F02 FIELD 逐行 Permission.list 放大（bulk 有 grant 时 ~2x，建议仿 bulkUpdate 聚合提出行外）⑫v2 POST /records?upsert=true 忽略 upsert 旗标（上游）⑬duplicate 数据拷贝单表 >1000 行 job 失败（上游 chunk 交互）
 - 阶段: F03 R4 待重派（连击 0/3）
 - 已 pass 功能: F05（6ab23da0）、F01（744d3161）、F07（bc409929da）、F10（ab31f60fe3）、F08（终 e737f8f3ec）
-- 当前功能: F03 Data permissions
-- 计数: F03 0/3（R3 有 error 已修，连击未开）
+- 当前功能: F04 Manage Syncs
+- 计数: F04 0/3（未开局）
 - 巡检 automation: 已删除（用户暂停）；恢复时按 .work/GOAL-STATE-automation-prompt.txt 重建每 2h 巡检
 - 环境: dev server :8080（rspack）+ :3000（Nuxt，2026-09-15 净重启）运行中；**:3000 /api/* 返回 HTML 是设计行为**（nc-gui dev 直连 :8080，BASE_FALLBACK_URL），UI 走查正常可用——R3-lane4 的「代理失效」E3 系误诊
 

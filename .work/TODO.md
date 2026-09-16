@@ -10,7 +10,7 @@
 - [x] F10 Create Dashboard — **pass（commit ab31f60fe3 + R1 修复 294c79ef5d）**：dashboard CRUD + 页面骨架 + 菜单入口 + extract-ids dashboardId + 标题唯一迁移（R2 期并入 v0 source 修正）
 - [x] F08 Base Type - Private — **pass（连击 R2/R3/R4 = 3/3，2026-09-14，实现 6aea3db097 + 四轮修复 2a86eb7d6c/b1d3ec3c5b/c8e0c83e0f/e737f8f3ec）**：is_private 列 + 404 遮蔽 + boolean 严格化 + legacy token 拒认 + shared-base 三层拦截 + duplicate 四路继承 + UI Base Type 面板 + palette 过滤；4 轮会审累计修 13 项
 - [x] F02 Edit field permissions — **pass（2026-09-14，R7/R8 连续清洁连击 3/3；实现 4b26d7a23f + 七轮修复终 ca6c81f5a6）**：字段级编辑权限全链路（nc_permissions 表/8 数据挂点/CRUD API/UI 弹窗+Details tab/交叉重名防劫持）
-- [ ] F03 Data permissions — 同 F02 通道（TABLE_RECORD_ADD/DELETE/VISIBILITY keys），实现 7b10716231 + R1/R2 修复链 + **R3 修复 b28787a54a**（弹窗 dirty-flag/SPECIFIC_USERS 死选项/importPermissions 实装副本带 grants/NOBODY 清 role/bulk 检查提循环外），**R4 五路已派遣即中止（用户暂停），待恢复重派（连击 0/3）**
+- [x] F03 Data permissions — **pass（2026-09-16，R4/R5/R6 连续清洁连击 3/3；实现 7b10716231 + 修复链终 51b9637b84）**：TABLE_RECORD_ADD/DELETE/VISIBILITY 全链路 + duplicate/restore 带 grants + 加固批（context.permissions memo 消费，bulk 放大 5x 消除）
 - [ ] F06 Docs Permissions — 依赖 Docs 功能面
 - [ ] F04 Manage Syncs — App Sync REST 面（表已有）
 - [ ] F09 Sync data (table/custom sync) — 最大件，最后
