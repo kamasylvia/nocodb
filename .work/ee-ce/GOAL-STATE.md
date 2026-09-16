@@ -8,7 +8,7 @@
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（F06 未开局；巡检 automation 每整点触发）
+- LOCK: active（F09 P1 实现子代理在飞：Table Sync manual 引擎+API+UI；巡检 automation 每整点触发）
 
 ## F04 PASS（2026-09-17 01:xx，R3/R4/R5 连续清洁，连击 3/3）
 
@@ -16,7 +16,6 @@
 - 实现链：2fd09efccf（面板+双入口+gate+i18n，后端零改动）+ dbfefe5a63 + 9188e0f1ff + hardening
 - 范围裁定：App Sync（SyncConfig）引擎裁掉待 F09 评估；Table Sync → F09；SyncLogs UI/15min 调度/enabled 启停记 fork 限制
 - backlog：FAILED 详情恒泛型（上游 setJobResult 零调用）、editor 顶栏标题（上游框架）
-- - LOCK: active（F04 R3 五路 subagents 在飞；巡检 automation 每整点触发）
 
 ## F04 R2 收官（2026-09-16 20:3x，2 error → 连击重置 0/3；修复已落；R3 在飞）
 
