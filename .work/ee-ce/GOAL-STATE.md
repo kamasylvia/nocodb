@@ -2,7 +2,7 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-16 13:0x（**F03 PASS**：R4/R5/R6 连续清洁，连击 3/3；加固批 51b9637b84 已落；切 F04 Manage Syncs）
+- 更新时间: 2026-09-16 22:xx（**复审方案固化**：23-9 subagents / 14-18 停止 / 其余外部阵容（无显式 provider/model/thinking 声明）；F04 R4 五路 subagents 在飞）
 - **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
