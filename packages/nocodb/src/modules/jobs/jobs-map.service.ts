@@ -12,6 +12,7 @@ import { InitMigrationJobs } from '~/modules/jobs/migration-jobs/init-migration-
 import { DataExportCleanUpProcessor } from '~/modules/jobs/jobs/data-export-clean-up/data-export-clean-up.processor';
 import { AttachmentUrlUploadProcessor } from '~/modules/jobs/jobs/attachment-url-upload/attachment-url-upload.processor';
 import { DataImportProcessor } from '~/modules/jobs/jobs/data-import/data-import.processor';
+import { TableSyncProcessor } from '~/modules/jobs/jobs/table-sync/table-sync.processor';
 import { JobTypes } from '~/interface/Jobs';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class JobsMap {
     protected readonly dataExportCleanUpProcessor: DataExportCleanUpProcessor,
     protected readonly attachmentUrlUploadProcessor: AttachmentUrlUploadProcessor,
     protected readonly dataImportProcessor: DataImportProcessor,
+    protected readonly tableSyncProcessor: TableSyncProcessor,
   ) {}
 
   protected get _jobMap(): {
@@ -90,6 +92,9 @@ export class JobsMap {
       },
       [JobTypes.DataImport]: {
         this: this.dataImportProcessor,
+      },
+      [JobTypes.TableSyncRun]: {
+        this: this.tableSyncProcessor,
       },
     };
   }

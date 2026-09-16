@@ -853,7 +853,7 @@ const isMmTable = computed(() => !!table.value?.mm)
                   />
 
                   <DashboardTreeViewTableSyncMenuOptions
-                    v-if="isEeUI && table.synced"
+                    v-if="table.synced /* [CE-EE] F09: gate on engine state, not isEeUI */"
                     :base-id="table.base_id!"
                     :table="table"
                     @close="isOptionsOpen = false"

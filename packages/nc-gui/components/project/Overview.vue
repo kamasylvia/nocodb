@@ -16,7 +16,7 @@ const { $e } = useNuxtApp()
 
 const { t } = useI18n()
 
-const { showEEFeatures, showExternalSourcePlanLimitExceededModal } = useEeConfig()
+const { showEEFeatures, showExternalSourcePlanLimitExceededModal, blockTableSync } = useEeConfig() /* [CE-EE] F09 */
 
 const { activeSidebarTab } = storeToRefs(useSidebarStore())
 
@@ -131,7 +131,10 @@ const onCreateBaseClick = () => {
 
           <ProjectActionCreateEmptyDashboard v-if="!isMobileMode && showEEFeatures" />
 
-          <ProjectActionCreateNewSync v-if="!isMobileMode && showEEFeatures" :base-id="base?.id" />
+          <ProjectActionCreateNewSync
+            v-if="!isMobileMode && !blockTableSync /* [CE-EE] F09: gate on feature, not paywall visibility */"
+            :base-id="base?.id"
+          />
 
           <NcTooltip
             v-if="!isMobileMode && isUIAllowed('sourceCreate')"

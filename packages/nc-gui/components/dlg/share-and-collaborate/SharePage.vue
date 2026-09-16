@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { ColumnType, KanbanType, ViewType } from 'nocodb-sdk'
-import { NC_VIEW_PASSWORD_PROTECTED_SENTINEL, PlanFeatureTypes, PlanTitles, ViewTypes } from 'nocodb-sdk'
+import { NC_VIEW_PASSWORD_PROTECTED_SENTINEL, ViewTypes } from 'nocodb-sdk'
 import { PreFilledMode } from '#imports'
 
 const { view: _view, $api } = useSmartsheetStoreOrThrow()
@@ -10,7 +10,7 @@ const { appInfo } = useGlobal()
 
 const { dashboardUrl } = useDashboard()
 
-const { showEEFeatures, getPlanTitle } = useEeConfig()
+const { showEEFeatures, blockTableSync } = useEeConfig() /* [CE-EE] F09 */
 
 const viewStore = useViewsStore()
 
@@ -705,46 +705,28 @@ const copyCustomUrl = async (custUrl = '') => {
         </div>
 
         <div
-          v-if="showEEFeatures && activeView?.type === ViewTypes.GRID"
+          v-if="!blockTableSync && activeView?.type === ViewTypes.GRID /* [CE-EE] F09: gate on feature, not paywall visibility */"
           class="flex flex-col justify-between gap-y-3 mt-1 py-2 px-3 bg-nc-bg-gray-extralight rounded-md"
         >
-          <PaymentUpgradeBadgeProvider :feature="PlanFeatureTypes.FEATURE_TABLE_SYNC">
-            <template #default="{ click }">
-              <div class="flex flex-row items-center justify-between">
-                <div class="text-nc-content-gray-extreme flex items-center space-x-1">
-                  <div>{{ $t('activity.allowSync') }}</div>
-                  <LazyPaymentUpgradeBadge
-                    :feature="PlanFeatureTypes.FEATURE_TABLE_SYNC"
-                    :content="
-                      $t('upgrade.upgradeToUseTableSyncSubtitle', {
-                        plan: getPlanTitle(PlanTitles.PLUS),
-                      })
-                    "
-                  />
-                  <NcTooltip class="flex items-center">
-                    <template #title>{{ $t('tooltip.allowSyncDescription') }}</template>
-                    <GeneralIcon icon="info" class="flex-none text-gray-400 cursor-pointer" />
-                  </NcTooltip>
-                </div>
-                <a-switch
-                  v-e="['c:share:view:allow-sync:toggle']"
-                  :checked="allowSync"
-                  :loading="isUpdating.allowSync"
-                  class="share-allow-sync-toggle !mt-0.25"
-                  data-testid="share-allow-sync-toggle"
-                  size="small"
-                  :disabled="isReadOnly"
-                  @click="
-                    (value) => {
-                      if (value && click(PlanFeatureTypes.FEATURE_TABLE_SYNC)) return
-
-                      toggleAllowSync()
-                    }
-                  "
-                />
-              </div>
-            </template>
-          </PaymentUpgradeBadgeProvider>
+          <div class="flex flex-row items-center justify-between">
+            <div class="text-nc-content-gray-extreme flex items-center space-x-1">
+              <div>{{ $t('activity.allowSync') }}</div>
+              <NcTooltip class="flex items-center">
+                <template #title>{{ $t('tooltip.allowSyncDescription') }}</template>
+                <GeneralIcon icon="info" class="flex-none text-gray-400 cursor-pointer" />
+              </NcTooltip>
+            </div>
+            <a-switch
+              v-e="['c:share:view:allow-sync:toggle']"
+              :checked="allowSync"
+              :loading="isUpdating.allowSync"
+              class="share-allow-sync-toggle !mt-0.25"
+              data-testid="share-allow-sync-toggle"
+              size="small"
+              :disabled="isReadOnly"
+              @click="() => toggleAllowSync()"
+            />
+          </div>
         </div>
 
         <div class="flex flex-col justify-between mt-1 py-2 px-3 bg-nc-bg-gray-extralight rounded-md">

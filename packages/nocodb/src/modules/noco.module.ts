@@ -38,6 +38,8 @@ import { AttachmentsController } from '~/controllers/attachments.controller';
 import { BaseVariablesController } from '~/controllers/base-variables.controller';
 // [CE-EE] F07: base snapshots meta API
 import { BaseSnapshotsController } from '~/controllers/base-snapshots.controller';
+// [CE-EE] F09: table sync meta API
+import { TableSyncsController } from '~/controllers/table-syncs.controller';
 import { PermissionsController } from '~/controllers/permissions.controller'; // [CE-EE] F02
 // [CE-EE] F10: dashboards meta API
 import { DashboardsController } from '~/controllers/dashboards.controller';
@@ -85,6 +87,8 @@ import { BaseVariablesService } from '~/services/base-variables.service';
 import { PermissionsService } from '~/services/permissions.service'; // [CE-EE] F02
 // [CE-EE] F07: base snapshots meta API
 import { BaseSnapshotsService } from '~/services/base-snapshots.service';
+// [CE-EE] F09: table sync service + engine
+import { TableSyncsService } from '~/services/table-syncs.service';
 // [CE-EE] F10: dashboards meta API
 import { DashboardsService } from '~/services/dashboards.service';
 import { BasesService } from '~/services/bases.service';
@@ -240,6 +244,7 @@ export const nocoModuleMetadata = {
           BasesController,
           BaseVariablesController,
           BaseSnapshotsController,
+          TableSyncsController, // [CE-EE] F09
           PermissionsController, // [CE-EE] F02
           DashboardsController,
           PublicMetasController,
@@ -335,6 +340,8 @@ export const nocoModuleMetadata = {
     PermissionsService, // [CE-EE] F02
     // [CE-EE] F07
     BaseSnapshotsService,
+    // [CE-EE] F09
+    TableSyncsService,
     // [CE-EE] F10
     DashboardsService,
     BasesService,

@@ -27,6 +27,8 @@ import { ThumbnailGeneratorProcessor } from '~/modules/jobs/jobs/thumbnail-gener
 import { AttachmentCleanUpProcessor } from '~/modules/jobs/jobs/attachment-clean-up/attachment-clean-up';
 import { AttachmentUrlUploadProcessor } from '~/modules/jobs/jobs/attachment-url-upload/attachment-url-upload.processor';
 import { DataImportProcessor } from '~/modules/jobs/jobs/data-import/data-import.processor';
+// [CE-EE] F09: table sync engine
+import { TableSyncProcessor } from '~/modules/jobs/jobs/table-sync/table-sync.processor';
 
 // Job Map
 import { JobsMap } from '~/modules/jobs/jobs-map.service';
@@ -96,6 +98,7 @@ export const JobsModuleMetadata = {
     AttachmentCleanUpProcessor,
     AttachmentUrlUploadProcessor,
     DataImportProcessor,
+    TableSyncProcessor, // [CE-EE] F09
 
     // Migration Jobs
     InitMigrationJobs,
