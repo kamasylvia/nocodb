@@ -18,7 +18,7 @@ const props = defineProps<{
   baseId?: string
 }>()
 
-const { $api, $poller } = useNuxtApp()
+const { $api } = useNuxtApp()
 const { t } = useI18n()
 
 const workspace = useWorkspace()
@@ -139,54 +139,50 @@ const resync = async (row: SyncRow) => {
     syncingId.value = row.id
     syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncing') } }
 
-    await loadJobsForBase(baseId.value)
-    const jobs = await getJobsForBase(baseId.value)
-    const job = jobData?.id
-      ? { id: jobData.id }
-      : (jobs ?? [])
-          .filter((j: any) => j.base_id === baseId.value && j.status !== JobStatus.COMPLETED && j.status !== JobStatus.FAILED)
-          .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+    // [CE-EE] F04 R2(lane1/lane4): track the resync via jobs-list polling —
+    // the $poller websocket is unusable here (jobs/listen is owner-gated, so
+    // a collaborator's subscribe 404s forever and deadlocks the panel, and
+    // the 'close' fallback read a stale jobs store). Poll every 3s until the
+    // job reaches a terminal state (or ~90s timeout).
+    const targetJobId: string | null = jobData?.id ?? null
+    let polls = 0
+    const watchdog = window.setInterval(async () => {
+      polls += 1
+      try {
+        await loadJobsForBase(baseId.value)
+        const jobs = getJobsForBase(baseId.value) || []
+        const job = targetJobId
+          ? jobs.find((j: any) => j.id === targetJobId)
+          : [...jobs]
+              .filter(
+                (j: any) =>
+                  j.base_id === baseId.value &&
+                  j.status !== JobStatus.COMPLETED &&
+                  j.status !== JobStatus.FAILED,
+              )
+              .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
 
-    if (!job) {
-      syncingId.value = null
-      return
-    }
-
-    $poller.subscribe(
-      { id: job.id },
-      async (data: { id: string; status?: string; data?: { error?: { message: string }; message?: string } }) => {
-        if (data.status === 'close') {
-          // [CE-EE] F04 R1(lane3): the job may have reached a terminal state
-          // before this subscription — resolve the outcome from the job list
-          // instead of leaving "Syncing…" on screen forever
+        if (job?.status === JobStatus.COMPLETED) {
+          window.clearInterval(watchdog)
           syncingId.value = null
-          try {
-            const jobs = await getJobsForBase(baseId.value)
-            const done = (jobs ?? []).find((j: any) => j.id === job.id)
-            if (done?.status === JobStatus.FAILED) {
-              syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncFailed'), failed: true } }
-            } else if (done?.status === JobStatus.COMPLETED) {
-              syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncDone') } }
-            }
-          } catch {
-            /* keep prior status text */
-          }
-          return
-        }
-        if (data.status === JobStatus.COMPLETED) {
           syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncDone') } }
+        } else if (job?.status === JobStatus.FAILED) {
+          window.clearInterval(watchdog)
           syncingId.value = null
-        } else if (data.status === JobStatus.FAILED) {
           syncStatus.value = {
             ...syncStatus.value,
-            [row.id]: { text: data.data?.error?.message || t('labels.syncsSyncFailed'), failed: true },
+            [row.id]: { text: job.result?.error?.message || t('labels.syncsSyncFailed'), failed: true },
           }
+        } else if (polls >= 30) {
+          // ~90s without a terminal state — stop polling and surface it
+          window.clearInterval(watchdog)
           syncingId.value = null
-        } else if (data.data?.message) {
-          syncStatus.value = { ...syncStatus.value, [row.id]: { text: data.data.message } }
+          syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncTimeout'), failed: true } }
         }
-      },
-    )
+      } catch {
+        /* transient poll error — retried on the next tick */
+      }
+    }, 3000)
   } catch (e: any) {
     syncingId.value = null
     message.error(await extractSdkResponseErrorMsg(e))

@@ -2800,7 +2800,8 @@
     "syncsSaved": "同步源已更新",
     "syncsDetailsJson": "详情（JSON）",
     "syncsInvalidJson": "详情不是合法 JSON",
-    "syncsTitleRequired": "标题必填"
+    "syncsTitleRequired": "标题必填",
+    "syncsSyncTimeout": "90 秒后仍在同步——请查看任务列表或重试。"
   },
   "activity": {
     "useTemplate": "使用模板",

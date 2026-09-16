@@ -4206,7 +4206,8 @@
     "syncsSaved": "Sync source updated",
     "syncsDetailsJson": "Details (JSON)",
     "syncsInvalidJson": "Details is not valid JSON",
-    "syncsTitleRequired": "Title is required"
+    "syncsTitleRequired": "Title is required",
+    "syncsSyncTimeout": "Still syncing after 90s — check the job list or retry."
   },
   "activity": {
     "useTemplate": "Use template",
