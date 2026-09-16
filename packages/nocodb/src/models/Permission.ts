@@ -419,6 +419,16 @@ export default class Permission {
       if (updateObj.granted_type === PermissionGrantedType.NOBODY) {
         updateObj.granted_role = null;
       }
+      // [CE-EE] F03 R6(lane3): user grants never read granted_role — drop
+      // the stale column on role→user transitions instead of leaving it as
+      // dead data (evaluator-ignored either way)
+      if (
+        updateObj.granted_type === PermissionGrantedType.USER &&
+        !('granted_role' in updateObj) &&
+        (existing as Permission).granted_role
+      ) {
+        updateObj.granted_role = null;
+      }
       await ncMeta.metaUpdate(
         context.workspace_id,
         context.base_id,

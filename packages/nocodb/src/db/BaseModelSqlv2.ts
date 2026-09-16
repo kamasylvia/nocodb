@@ -10647,10 +10647,17 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     // request-scoped permission list (MCP preloads req.permissions; data
     // routes go through Permission.list which handles the extract-ids
     // pre-seeded empty context array and the per-base NocoCache)
+    // [CE-EE] F03 hardening (R6 backlog ⑪): consume the request-scoped
+    // context.permissions memo when Permission.list already ran in this
+    // request (e.g. AclMiddleware or an earlier checkPermission call) —
+    // otherwise per-row FIELD checks in bulk paths pay the full
+    // permissions+subjects round-trip on every row.
     const permissions =
       (params.req as any)?.permissions?.length
         ? (params.req as any).permissions
-        : await Permission.list(reqContext, reqContext.base_id);
+        : (reqContext as any)?.permissions?.length
+          ? (reqContext as any).permissions
+          : await Permission.list(reqContext, reqContext.base_id);
 
     if (!permissions?.length) {
       return;
