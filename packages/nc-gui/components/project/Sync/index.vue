@@ -91,10 +91,12 @@ const saveEdit = async (row: SyncRow) => {
   }
   isSaving.value = true
   try {
+    // [CE-EE] F04 R1(lane5): only send the fields the endpoint consumes —
+    // no id/enabled echo
     await $api.internal.postOperation(wsId.value, baseId.value, {
       operation: 'syncSourceUpdate',
       syncId: row.id,
-    }, { ...row, title: editTitle.value.trim(), details })
+    }, { title: editTitle.value.trim(), type: row.type, details })
     message.success(t('labels.syncsSaved'))
     editingId.value = null
     await loadSyncs()
@@ -152,9 +154,23 @@ const resync = async (row: SyncRow) => {
 
     $poller.subscribe(
       { id: job.id },
-      (data: { id: string; status?: string; data?: { error?: { message: string }; message?: string } }) => {
+      async (data: { id: string; status?: string; data?: { error?: { message: string }; message?: string } }) => {
         if (data.status === 'close') {
+          // [CE-EE] F04 R1(lane3): the job may have reached a terminal state
+          // before this subscription — resolve the outcome from the job list
+          // instead of leaving "Syncing…" on screen forever
           syncingId.value = null
+          try {
+            const jobs = await getJobsForBase(baseId.value)
+            const done = (jobs ?? []).find((j: any) => j.id === job.id)
+            if (done?.status === JobStatus.FAILED) {
+              syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncFailed'), failed: true } }
+            } else if (done?.status === JobStatus.COMPLETED) {
+              syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncDone') } }
+            }
+          } catch {
+            /* keep prior status text */
+          }
           return
         }
         if (data.status === JobStatus.COMPLETED) {

@@ -2795,7 +2795,7 @@
     "syncsSyncDone": "同步完成",
     "syncsSyncFailed": "同步失败",
     "syncsDeleteTitle": "删除同步源",
-    "syncsDeleteDescription": "将移除该同步源配置；已导入的表与数据保留。",
+    "syncsDeleteDescription": "将移除同步源「{title}」；已导入的表与数据保留。",
     "syncsDeleted": "同步源已删除",
     "syncsSaved": "同步源已更新",
     "syncsDetailsJson": "详情（JSON）",

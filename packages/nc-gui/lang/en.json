@@ -4201,7 +4201,7 @@
     "syncsSyncDone": "Sync completed",
     "syncsSyncFailed": "Sync failed",
     "syncsDeleteTitle": "Delete sync source",
-    "syncsDeleteDescription": "The sync source configuration will be removed. Imported tables and data are kept.",
+    "syncsDeleteDescription": "The sync source \"{title}\" will be removed. Imported tables and data are kept.",
     "syncsDeleted": "Sync source deleted",
     "syncsSaved": "Sync source updated",
     "syncsDetailsJson": "Details (JSON)",

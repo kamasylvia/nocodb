@@ -169,12 +169,12 @@ watch(
       return
     }
 
-      if (newVal && newVal !== oldVal) {
-        // [CE-EE] F04: drop the isEeUI compile-time gate — syncs tab now rides
-        // the blockSync fork flag like the snapshots tab
-        if (newVal === 'syncs' && !blockSync.value) {
-          projectPageTab.value = 'syncs'
-        } else if (newVal === 'data-source') {
+    if (newVal && newVal !== oldVal) {
+      // [CE-EE] F04: drop the isEeUI compile-time gate — syncs tab now rides
+      // the blockSync fork flag like the snapshots tab
+      if (newVal === 'syncs' && !blockSync.value) {
+        projectPageTab.value = 'syncs'
+      } else if (newVal === 'data-source') {
         projectPageTab.value = 'data-source'
       } else if (newVal === 'integrations' && isIntegrationsTabVisible.value) {
         projectPageTab.value = 'integrations'
