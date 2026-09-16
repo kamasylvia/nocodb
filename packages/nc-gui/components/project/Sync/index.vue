@@ -37,6 +37,14 @@ const isSaving = ref(false)
 
 const syncingId = ref<string | null>(null)
 const syncStatus = ref<Record<string, { text: string; failed?: boolean }>>({})
+// [CE-EE] F04 R3(lane3/lane5): watchdog interval handles — cleared on
+// unmount so a navigating-away user doesn't leave a ≤90s poller running
+const watchdogTimers = ref<number[]>([])
+
+onUnmounted(() => {
+  watchdogTimers.value.forEach((t) => window.clearInterval(t))
+  watchdogTimers.value = []
+})
 
 const baseId = computed(() => props.baseId)
 const wsId = computed(() => activeWorkspace.value?.id ?? baseStore.base?.workspace_id ?? '')
@@ -130,7 +138,12 @@ const deleteSync = (row: SyncRow) => {
 }
 
 const resync = async (row: SyncRow) => {
-  if (syncingId.value) return
+  if (syncingId.value) {
+    // [CE-EE] F04 R3(lane3): silent return gave zero feedback — surface the
+    // in-flight state instead
+    message.info(t('labels.syncsSyncing'))
+    return
+  }
   try {
     const jobData: any = await $api.internal.postOperation(wsId.value, baseId.value, {
       operation: 'atImportTrigger',
@@ -164,10 +177,12 @@ const resync = async (row: SyncRow) => {
 
         if (job?.status === JobStatus.COMPLETED) {
           window.clearInterval(watchdog)
+          watchdogTimers.value = watchdogTimers.value.filter((t) => t !== watchdog)
           syncingId.value = null
           syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncDone') } }
         } else if (job?.status === JobStatus.FAILED) {
           window.clearInterval(watchdog)
+          watchdogTimers.value = watchdogTimers.value.filter((t) => t !== watchdog)
           syncingId.value = null
           syncStatus.value = {
             ...syncStatus.value,
@@ -176,6 +191,7 @@ const resync = async (row: SyncRow) => {
         } else if (polls >= 30) {
           // ~90s without a terminal state — stop polling and surface it
           window.clearInterval(watchdog)
+          watchdogTimers.value = watchdogTimers.value.filter((t) => t !== watchdog)
           syncingId.value = null
           syncStatus.value = { ...syncStatus.value, [row.id]: { text: t('labels.syncsSyncTimeout'), failed: true } }
         }
@@ -183,6 +199,7 @@ const resync = async (row: SyncRow) => {
         /* transient poll error — retried on the next tick */
       }
     }, 3000)
+    watchdogTimers.value.push(watchdog)
   } catch (e: any) {
     syncingId.value = null
     message.error(await extractSdkResponseErrorMsg(e))
