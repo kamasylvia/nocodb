@@ -2786,7 +2786,21 @@
     "selectBases": "选择基础",
     "key": "键",
     "value": "值",
-    "type": "类型"
+    "type": "类型",
+    "syncsSubtitle": "管理此 base 关联的同步源（Airtable 导入）。",
+    "syncsEmpty": "暂无同步源。可在 base 首页通过 导入 > Airtable 创建。",
+    "syncsCreateHint": "新同步源通过 base 的「导入」菜单（Airtable）创建。",
+    "syncsResync": "立即重同步",
+    "syncsSyncing": "同步中…",
+    "syncsSyncDone": "同步完成",
+    "syncsSyncFailed": "同步失败",
+    "syncsDeleteTitle": "删除同步源",
+    "syncsDeleteDescription": "将移除该同步源配置；已导入的表与数据保留。",
+    "syncsDeleted": "同步源已删除",
+    "syncsSaved": "同步源已更新",
+    "syncsDetailsJson": "详情（JSON）",
+    "syncsInvalidJson": "详情不是合法 JSON",
+    "syncsTitleRequired": "标题必填"
   },
   "activity": {
     "useTemplate": "使用模板",

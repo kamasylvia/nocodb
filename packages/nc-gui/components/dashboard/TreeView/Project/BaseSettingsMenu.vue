@@ -164,7 +164,11 @@ onMounted(() => {
       {{ $t('labels.baseIntegrations') }}
     </NcSidebarMenuItem>
     <NcSidebarMenuItem
-      v-if="isEeUI && isUIAllowed('sourceCreate', { roles: effectiveRoles }) && !isMobileMode && showEEFeatures"
+      v-if="
+        !blockSync /* [CE-EE] F04 */ &&
+        isUIAllowed('sourceCreate', { roles: effectiveRoles }) &&
+        !isMobileMode
+      "
       v-e="['c:settings:base:syncs']"
       icon="ncZap"
       data-testid="base-syncs"
@@ -173,7 +177,7 @@ onMounted(() => {
     >
       {{ $t('labels.manageSyncs') }}
       <template #extraRight>
-        <LazyPaymentUpgradeBadge :feature="PlanFeatureTypes.FEATURE_SYNC" remove-click />
+        <LazyPaymentUpgradeBadge :feature-enabled-callback="() => !isEEFeatureBlocked" />
       </template>
     </NcSidebarMenuItem>
     <NcSidebarMenuItem

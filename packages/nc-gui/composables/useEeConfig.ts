@@ -153,7 +153,9 @@ export const useEeConfig = createSharedComposable(() => {
 
   const blockAddNewSandbox = computed(() => true)
 
-  const blockSync = computed(() => true)
+  // [CE-EE] F04 Manage Syncs: legacy SyncSource (Airtable sync) management panel —
+  // backend CRUD/engine fully present in CE with creator+ ACL, so unblocked here
+  const blockSync = computed(() => false)
 
   const blockTableSync = computed(() => true)
 

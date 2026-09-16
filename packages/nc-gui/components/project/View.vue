@@ -169,10 +169,12 @@ watch(
       return
     }
 
-    if (newVal && newVal !== oldVal) {
-      if (isEeUI && newVal === 'syncs' && !blockSync.value) {
-        projectPageTab.value = 'syncs'
-      } else if (newVal === 'data-source') {
+      if (newVal && newVal !== oldVal) {
+        // [CE-EE] F04: drop the isEeUI compile-time gate — syncs tab now rides
+        // the blockSync fork flag like the snapshots tab
+        if (newVal === 'syncs' && !blockSync.value) {
+          projectPageTab.value = 'syncs'
+        } else if (newVal === 'data-source') {
         projectPageTab.value = 'data-source'
       } else if (newVal === 'integrations' && isIntegrationsTabVisible.value) {
         projectPageTab.value = 'integrations'
@@ -566,7 +568,8 @@ watch(
           </template>
           <DashboardSettingsBaseIntegrations :base-id="base.id" />
         </a-tab-pane>
-        <a-tab-pane v-if="isUIAllowed('sourceCreate') && base.id && !isMobileMode && showEEFeatures" key="syncs">
+        <!-- [CE-EE] F04: gate on the fork feature flag + creator role (snapshots pattern) -->
+        <a-tab-pane v-if="!blockSync && isUIAllowed('sourceCreate') && base.id && !isMobileMode" key="syncs">
           <template #tab>
             <div class="tab-title" data-testid="proj-view-tab__syncs">
               <GeneralIcon icon="ncZap" />
