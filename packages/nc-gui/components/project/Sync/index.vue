@@ -205,7 +205,12 @@ const resync = async (row: SyncRow) => {
     watchdogTimers.value.push(watchdog)
   } catch (e: any) {
     syncingId.value = null
-    message.error(await extractSdkResponseErrorMsg(e))
+    // [CE-EE] F04 R5(lane2/lane3): the optimistic "Syncing…" status was set
+    // before the trigger — a rejected POST must clear/replace it, or the row
+    // keeps a gray "Syncing…" forever while the button is already unlocked
+    const msg = await extractSdkResponseErrorMsg(e)
+    syncStatus.value = { ...syncStatus.value, [row.id]: { text: msg, failed: true } }
+    message.error(msg)
   }
 }
 

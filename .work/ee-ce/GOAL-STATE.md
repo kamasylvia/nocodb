@@ -2,13 +2,21 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-16 22:xx（**复审方案固化**：23-9 subagents / 14-18 停止 / 其余外部阵容（无显式 provider/model/thinking 声明）；F04 R4 五路 subagents 在飞）
+- 更新时间: 2026-09-17 01:xx（**F04 PASS**：R3/R4/R5 连续清洁，连击 3/3；R5 修复批 b6c95cb3ac+后续 hardening 已落；切 F06 Docs Permissions）
 - **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（F04 R3 五路 subagents 在飞；巡检 automation 每整点触发）
+- LOCK: active（F06 未开局；巡检 automation 每整点触发）
+
+## F04 PASS（2026-09-17 01:xx，R3/R4/R5 连续清洁，连击 3/3）
+
+- R1：5/5 PASS（0 error，4 minor 批 dbfefe5a63）；R2：2 error（close 回落读陈旧 store + 跨账号 poller 404 死锁）→ 连击重置 + **watchdog 重写**（弃用 $poller，3s jobs-list 轮询，owner/协作者一致）并入 dbfefe5a63；R3：5/5 PASS（1/3，90s 兜底计划外实测命中）；R4：5/5 PASS（2/3，乐观置位锁 9188e0f1ff）；R5：5/5 PASS（3/3）+ hardening（被拒 resync 清 optimistic 状态）
+- 实现链：2fd09efccf（面板+双入口+gate+i18n，后端零改动）+ dbfefe5a63 + 9188e0f1ff + hardening
+- 范围裁定：App Sync（SyncConfig）引擎裁掉待 F09 评估；Table Sync → F09；SyncLogs UI/15min 调度/enabled 启停记 fork 限制
+- backlog：FAILED 详情恒泛型（上游 setJobResult 零调用）、editor 顶栏标题（上游框架）
+- - LOCK: active（F04 R3 五路 subagents 在飞；巡检 automation 每整点触发）
 
 ## F04 R2 收官（2026-09-16 20:3x，2 error → 连击重置 0/3；修复已落；R3 在飞）
 
@@ -43,8 +51,8 @@
 - backlog 增量：⑪F02 FIELD 逐行 Permission.list 放大（bulk 有 grant 时 ~2x，建议仿 bulkUpdate 聚合提出行外）⑫v2 POST /records?upsert=true 忽略 upsert 旗标（上游）⑬duplicate 数据拷贝单表 >1000 行 job 失败（上游 chunk 交互）
 - 阶段: F03 R4 待重派（连击 0/3）
 - 已 pass 功能: F05（6ab23da0）、F01（744d3161）、F07（bc409929da）、F10（ab31f60fe3）、F08（终 e737f8f3ec）
-- 当前功能: F04 Manage Syncs
-- 计数: F04 0/3（未开局）
+- 当前功能: F06 Docs Permissions
+- 计数: F06 0/3（未开局）
 - 巡检 automation: 已删除（用户暂停）；恢复时按 .work/GOAL-STATE-automation-prompt.txt 重建每 2h 巡检
 - 环境: dev server :8080（rspack）+ :3000（Nuxt，2026-09-15 净重启）运行中；**:3000 /api/* 返回 HTML 是设计行为**（nc-gui dev 直连 :8080，BASE_FALLBACK_URL），UI 走查正常可用——R3-lane4 的「代理失效」E3 系误诊
 
