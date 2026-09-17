@@ -2,13 +2,23 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-17 01:xx（**F04 PASS**：R3/R4/R5 连续清洁，连击 3/3；R5 修复批 b6c95cb3ac+后续 hardening 已落；切 F06 Docs Permissions）
+- 更新时间: 2026-09-18 07:xx（**F09 R5 裁决 + 修复 + R6 派遣**：E1 五路同判 fail-open 已修 dd46a3eb1d；minors 批 aabe3587fe；R6 五路 07:0x 派遣，连击 0/3）
 - **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（F09 R2 重试批收尾 + F04 R5 已 PASS；巡检 automation 每整点触发）
+- LOCK: active（F09 R6 五路在飞；巡检 automation 每整点触发）
+
+## F09 R5 裁决 + 修复 + R6 派遣（2026-09-18 07:xx，5/5 报告）
+
+- **E1 五路同判 error（必修，连击清零）**：assertSourceReadAccess 漏「显式 base no-access + ws 可读 + 非私有源」象限——平台两路皆拒（403），F09 放行且 createSync→引擎整表复制源数据（五路各自独立 API 实测复现）。**修复 dd46a3eb1d**（baseNoAccess 短路，ws 兜底仅限 base 行 ''/inherit），已部署 ~/.nocodb-run 并活体验证（no-access+ws-creator → 404、owner 200）
+- **minors 批 aabe3587fe**：①向导 NcSelect `filterable` 无效 prop → show-search + filter-option 按 label 过滤（3 路命中）②树菜单 overlay 组件持久挂载致状态冻结 → open prop watch 每开重拉 + loading 占位行③onDelete 调 `useBases().loadTables()`（不存在的方法，运行时 TypeError，树永不刷新）→ 改 DlgTableDelete 同款后清理（removeMeta/removeFromRecentViews/await loadTables/跳转）。jest 41/41 + HMR 干净
+- 验收措辞裁定：editor 三入口可见性 lane4/5 与 lane1 分歧——无泄露通道（createSync 403、allow_sync PATCH 200 与平台 viewUpdate 一致），记 backlog 非 error
+- backlog 增量：resync 不复检 allow_sync/源读权限（P2 设计灰区，与 EE paste 持久凭证语义同构）；引擎 update 分支仅 markDeleted 策略清 RemoteDeleted（lane3b m2）
+- R6 任务书 `.work/ee-ce/r6-f09-lane-prompt.md`（E1 六格矩阵 + R5 四象限重跑 + minors 回归），五路 subagents 07:0x 派遣在飞
+- 环境留痕：kilo R3 僵尸进程（pid 2872，muse 慢跑，报告 02:31 已落盘后未退）按红线不杀仅记录；.reasonix/ CLI 产物目录入 .gitignore
+- **F04 PASS（2026-09-18 00:3x，R3/R4/R5 连击 3/3）→ pass = 9/10，剩 F09**
 
 ## F04 PASS（2026-09-18 00:3x，R3/R4/R5 连续清洁，连击 3/3）
 
