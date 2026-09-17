@@ -8,6 +8,7 @@ import type { TableType } from 'nocodb-sdk'
 const props = defineProps<{
   baseId: string
   table: TableType
+  open?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -16,12 +17,26 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const { sync, isUpdating, load, syncNow, freeze, resume, remove } = useTableSync(
-  props.baseId,
-  props.table.id!,
-)
+const { sync, isUpdating, isLoading, load, syncNow, freeze, resume, remove } =
+  useTableSync(props.baseId, props.table.id!)
+
+const { baseUrl, loadTables } = useBase()
+const { removeMeta } = useMetas()
+const { removeFromRecentViews } = useViewsStore()
+const { baseTables, activeTable, openTable } = useTablesStore()
 
 const isDeleteConfirmOpen = ref(false)
+
+// [CE-EE] F09 R5(lane1/2/5): the dropdown overlay keeps this component
+// mounted after the first open — reload the sync record every time the
+// menu opens, or status freezes at the mount-time value (Syncing…) and
+// Pause/Resume disappear until a page reload
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) load()
+  },
+)
 
 const statusLabel = computed(() => {
   if (!sync.value) return ''
@@ -40,14 +55,35 @@ const onSyncNow = async () => {
 const onDelete = async () => {
   isDeleteConfirmOpen.value = false
   await remove()
-  await load()
-  useBases().loadTables()
   emit('close')
+  // [CE-EE] F09 R5(lane2/3b): useBases() has no loadTables (the earlier
+  // call threw and the tree never refreshed) — mirror DlgTableDelete's
+  // post-delete flow instead: drop cached meta/recents, reload the tree,
+  // and leave the deleted table's view
+  removeFromRecentViews({ baseId: props.baseId, tableId: props.table.id! })
+  removeMeta(props.baseId, props.table.id!, true)
+  await loadTables()
+  if (activeTable.value?.id === props.table.id) {
+    const remaining = (baseTables.value.get(props.baseId) ?? []).filter(
+      (t) => t.id !== props.table.id,
+    )
+    if (remaining.length) {
+      await openTable(remaining[0])
+    } else {
+      await navigateTo(baseUrl({ id: props.baseId, type: 'database' }))
+    }
+  }
 }
 </script>
 
 <template>
-  <div v-if="sync" class="flex flex-col">
+  <!-- [CE-EE] F09 R5(lane5): keep the menu visible while the sync record is
+       still loading, or the first open renders an empty dropdown -->
+  <div v-if="!sync && isLoading" class="flex items-center gap-2 px-3 py-1.5 text-xs text-nc-content-gray-subtle2">
+    <GeneralIcon icon="refresh" class="flex-none animate-spin" />
+    <span>{{ $t('general.loading') }}</span>
+  </div>
+  <div v-else-if="sync" class="flex flex-col">
     <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-nc-content-gray-subtle2">
       <GeneralIcon icon="refresh" class="flex-none" />
       <span data-testid="table-sync-menu-status">{{ statusLabel }}</span>

@@ -856,6 +856,7 @@ const isMmTable = computed(() => !!table.value?.mm)
                     v-if="table.synced /* [CE-EE] F09: gate on engine state, not isEeUI */"
                     :base-id="table.base_id!"
                     :table="table"
+                    :open="isOptionsOpen"
                     @close="isOptionsOpen = false"
                   />
                   <template v-if="enabledOptions.tableDelete && !table.synced">

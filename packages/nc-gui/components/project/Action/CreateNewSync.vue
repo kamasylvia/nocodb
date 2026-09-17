@@ -33,6 +33,18 @@ const schema = ref<{
 
 const selectedBaseId = ref<string>()
 const selectedTableId = ref<string>()
+
+// [CE-EE] F09 R5(lane1/4/5): NcSelect 只认 show-search + filter-option，
+// 按选项 label（base/table 标题）过滤
+const filterSelectOption = (input: string, option: any) => {
+  const query = input.toLowerCase()
+  return (
+    option.label?.toLowerCase().includes(query) ||
+    String(option.value ?? '')
+      .toLowerCase()
+      .includes(query)
+  )
+}
 const selectedViewId = ref<string>()
 const fieldMode = ref<'all' | 'specific'>('all')
 const selectedFields = ref<string[]>([])
@@ -186,7 +198,8 @@ watch(selectedTableId, (id) => {
             :placeholder="$t('title.newBase')"
             data-testid="table-sync-source-base"
             class="w-full"
-            filterable
+            show-search
+            :filter-option="filterSelectOption"
             :loading="isLoading"
           />
         </div>
@@ -198,7 +211,8 @@ watch(selectedTableId, (id) => {
             :placeholder="$t('objects.table')"
             data-testid="table-sync-source-table"
             class="w-full"
-            filterable
+            show-search
+            :filter-option="filterSelectOption"
             :loading="isLoading"
           />
         </div>

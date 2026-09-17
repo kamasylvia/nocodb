@@ -146,3 +146,5 @@ scripts/.onprem-dev-keys/
 !.work/ee-ce/*.sh
 # [CE-EE] noco-integrations local layout shim (symlink core -> packages/core)
 packages/noco-integrations/packages/
+# [CE-EE] reasonix CLI local artifacts (external review lanes)
+.reasonix/
