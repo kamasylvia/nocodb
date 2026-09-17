@@ -8,7 +8,14 @@
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（F09 P1 实现子代理在飞：Table Sync manual 引擎+API+UI；巡检 automation 每整点触发）
+- LOCK: active（F09 R2 重试批收尾 + F04 R5 已 PASS；巡检 automation 每整点触发）
+
+## F04 PASS（2026-09-18 00:3x，R3/R4/R5 连续清洁，连击 3/3）
+
+- R4：5/5 PASS（0 error，2 minor：乐观锁 + catch syncStatus）；R5：5/5 PASS（0 error，1 minor 同源已修）
+- 修复批：乐观置位锁（9188e0f1ff）+ catch syncStatus 替换（c051bfa3db 同批）均已入库
+- 实现链：2fd09efccf（面板+双入口+gate+i18n，后端零改动）+ 9188e0f1ff + hardening
+- F04 总进度：**pass = 9/10**（剩 F09）
 
 ## F04 PASS（2026-09-17 01:xx，R3/R4/R5 连续清洁，连击 3/3）
 
