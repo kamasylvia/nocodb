@@ -1,66 +1,69 @@
-# F04 R5 lane3 复审报告
+# F04 R5 复审报告 — lane3（重派轮）
 
-issues（1 minor，0 error）
+PASS（0 error）
 
-## R5 增量项：R4 修复批 commit 9188e0f1ff 回归（resync syncingId 乐观置位）
+- 审查 HEAD：main = 1480308312（含 R4 修复批 9188e0f1ff + R5 hardening 64b720d877）
+- 环境实测：后端 :8080 / 前端 :3000 全程存活（仅一次 curl 与 UI 的 token 互踢，为已知机制，见观察项 4）
+- 测试账号：f05r5l3-owner/editor/viewer@t.local（owner 经 f03r3-owner invite 入 base）；测试数据全部 f05r5l3-* 前缀；base 已删、浏览器会话已关、/tmp 凭证已清
+- 注：本文件覆盖上一轮 R5 lane3 报告（Sep 17 01:31 版），本轮为 R5 重派独立复审
 
-### diff 审查
-- 单提交 9188e0f1ff，仅 `packages/nc-gui/components/project/Sync/index.vue`（+5/-2）：`syncingId.value = row.id` + `syncStatus` 置位从 `await $api.internal.postOperation(atImportTrigger)` 之后移到之前（L150-151），带 `// [CE-EE]` 标记。与修复方案一致；未触碰 store/sync.ts、后端零改动（git show --stat 确认仅此 1 文件）。
-- 失败路径核查：catch（L206-208）清 `syncingId`（锁不泄漏）；watchdog 三路（COMPLETED/FAILED/90s 超时）均 clearInterval + 从 watchdogTimers 移除 + 清锁；onUnmounted 全清（R3 修复沿袭完好）。
+## 1. R5 专属附录验证（核心）
 
-### 双击不发第二发 atImportTrigger（实测，决定性证据）
-- 方法：camoufox eval 在页面内以 120ms 间隔连点 Resync（shell 双击间隔不可控，弃用），以**服务端 at-import job 计数**为判据（jobs 端点 `POST /api/v2/jobs/:baseId` 返回数组）。job 无真实 Airtable 凭证时秒级 failed → 后端 dedup（UiPost.operations.ts L730-733 只查在跑 job）不可能拦截第二发 → job 增量是纯 UI 层证据。
-- 结果：三组双击实验 job 增量**恒为 1**（3→4→5→6）。若锁失效第二击会在 await 窗口内发出第二发（job 秒 failed 不构成 dedup 条件）→ 增量 2。实测排除。
-- 锁窗口内行为：按钮 loading 态生效（`:loading="syncingId === row.id"`），状态行显示 "Syncing…"；锁在 3s 轮询见 FAILED 后正确释放。
+### 1.1 resync 乐观置位锁（9188e0f1ff）— PASS
 
-### catch 路径实测（1 minor）
-- 场景：API 删除 sync row 后不刷新面板，点 UI 残留行的 Resync → atImportTrigger 404（`Sync Source not found`）→ catch 清锁（btnLoading=false 实测）✓
-- **minor**：`packages/nc-gui/components/project/Sync/index.vue:206-208` catch 分支只清 `syncingId` 未清 `syncStatus[row.id]` → 状态行**永久残留 "Syncing…"**（实测 4s 后仍在，至下次操作/刷新才消失）。系 R4 乐观置位引入（旧代码失败时 status 尚未置位无残留）。无功能损害（按钮解锁、无请求泄漏）。建议 catch 中一并覆写 `syncStatus`（如 `{ text: t('labels.syncsSyncFailed'), failed: true }`）或 delete 该 key。
+- 代码审：`packages/nc-gui/components/project/Sync/index.vue:147-153` — `syncingId.value = row.id` 与 status 置位移至 `atImportTrigger` POST **之前**，位于 try 外（catch 可达）。resync handler 同步段在第一个 await 前完成置位，第二个 click 事件必然命中 `if (syncingId.value)` guard。
+- 实测（camoufox session f05r5l3，owner UI）：扩容 `performance.setResourceTimingBufferSize(8192)` 后，同一 eval 内同步双击 Resync（比真实鼠标双击更严苛的零间隔场景）：
+  - performance resource entries 中 `operation=atImportTrigger` 请求 = **1 发**（`http://localhost:8080/api/v2/internal/w9qi3ljd/p08xokzkbr2hphj?operation=atImportTrigger&syncId=ncx0nwfkagdiejk5`）
+  - `.ant-message-notice` 仅 1 个 toast："Syncing…"（第二击 guard 反馈）
+  - 不依赖后端 400 去重：guard 先于 POST 命中 ✅
 
-## 全矩阵回归（R1/R4 任务书同规格）
+### 1.2 锁释放路径完备 — PASS
 
-### ACL 矩阵（API 实测，专属 base）
-- owner/creator：list/create/PATCH/DELETE/internal-ops 全 200 ✓
-- editor/viewer：list/create 403；PATCH/DELETE 403（直接端点 `/api/v2/meta/syncs/:id` 与 internal ops 双路径一致）；editor 对 owner 行越权 PATCH/DELETE 403 ✓
-- 匿名：list/create/PATCH/DELETE 全 401 ✓
-- editor/viewer internal ops：syncSourceList/syncSourceUpdate/syncSourceDelete/atImportTrigger 全 403 ✓
-- 注：正确路径下无 404 异常；editor PATCH 后数据未变（row intact 验证）。
+四条路径逐一核实（index.vue）：
 
-### CRUD e2e
-创建→列表含→PATCH（title+details）→重查一致→DELETE→重列归零，全 200 ✓；internal ops syncSourceUpdate（creator 200）/syncSourceDelete（editor/viewer 403 后 row 保留）✓
+| 路径 | 位置 | 清锁 | 状态文本 | 实测 |
+|---|---|---|---|---|
+| COMPLETED | :181-185 | clearInterval + watchdogTimers 移除 + syncingId=null | syncsSyncDone | 代码审 |
+| FAILED | :186-193 | 同上 | syncsSyncFailed | **实测**：伪凭证 job 数秒 failed → 按钮 loading 消失、btnDisabled=false、行显示 "Sync failed" |
+| timeout (polls≥30) | :194-200 | 同上 | syncsSyncTimeout(failed) | 代码审 + R3 计划外实测命中沿袭 |
+| catch（POST 被拒） | :206-214 | syncingId=null | **后端错误文本(failed)**（64b720d877 修复：不再残留灰色 "Syncing…"） | 代码审（diff 确认 catch 先取 msg 再双写 syncStatus + message.error） |
 
-### UI 段（camoufox owner 会话）
-- 空态文案、卡片渲染（title/type 徽标/details keys）、Edit 预填（title + JSON）→ 保存 → UI 与 DB 一致（`f05r5l3-sync1-edited` + 3 keys）、Delete 确认弹窗（含数据保留文案）→ 行消失 → 空态、DB 0 行 ✓
-- 侧栏 Manage Syncs 菜单（owner 可见，`proj-view-tab__syncs` tab 键在）✓
-- Resync 触发 → job 创建（API 计数）✓；Nuxt error overlay 双零（owner/editor 页面多次检查 `vite-error-overlay`/`nuxt-error-overlay` 均无）✓
+- **失败终态后 Resync 可再点**：实测 FAILED 后再次双击成功触发新 trigger（1.1 的第二次双击实验即建立在首次 FAILED 之后）✅
 
-### editor UI 隔离（专属会话 f05r5l3e）
-- settings 侧栏无 Manage Syncs 菜单项（`[data-testid=base-syncs]` 数 0；侧栏仅 Invite Members/MCP Server）✓
-- 直 URL `#/nc/:baseId/settings/syncs` 无 `.nc-base-syncs` 面板 ✓
+## 2. R4 修复批回归验证
 
-### App Sync 隔离
-- 源码：`store/sync.ts:19 isSyncFeatureEnabled = ref(false)` 未动；三消费组件（IntegrationsTab/AddConnectionDropdown/base Integrations）引用保留。
-- UI：base Integrations tab 与 workspace Integrations 页均无 App Sync 文本/创建入口 ✓
+1. **watchdog 卸载清理（b6c95cb3ac）— PASS**：实测制造真实打断场景——纯 SPA hash 导航（document 全程未重载，以 `window.__alive` 标记验证）内点击 Resync、1 秒内离开（离开时按钮仍 loading、watchdog 首个 3s tick 未到），导航后 100 秒 resource entries 中 `/api/v2/jobs/` 请求 = **0**（若清理失效应有 ~30 个）。探针纯净性：`loadJobsForBase`/`jobs.list` 消费者仅 Sync/index.vue 与未开启的 AirtableImport 弹窗。代码审：`index.vue:40-47` watchdogTimers 登记（:183/:188/:197/:205）+ onUnmounted 全清。
+2. **二次 resync 反馈 — PASS**：guard 命中弹 "Syncing…" info toast（1.1 实测同场验证；不再静默 return）。
+3. **90s 超时文案 — PASS**：en.json:4210 `"Still syncing after 90s — check back later or retry."` / zh-Hans.json:2804 `"90 秒后仍在同步——请稍后回来查看或重试。"`——均不提及 job list。
 
-### 回归 smoke（API 探针，专属 base）
-F02/F03 permissionList 200 / F05 variables 200 / F07 snapshots 200 / F10 dashboards 200 / F08 base meta 含 `is_private` / tables list 200。Import > Airtable 入口存在（建表后实测），向导深走属 E3 沿袭。
+## 3. 全矩阵复核（R1 规格回归）
 
-### i18n
-16 键 en+zh-Hans 双份全在；90s 超时文案 en "Still syncing after 90s — check back later or retry." / zh "90 秒后仍在同步——请稍后回来查看或重试。" 均无 job list 字样（R3 修复项沿袭验证 ✓）。
+- **diff 审查**：F04 commit 链 2fd09efccf → dbfefe5a63 → b6c95cb3ac → 9188e0f1ff → 64b720d877 逐一 `git show --stat`：**均零 packages/nocodb/src 变更**（后端零改动保持）。64b720d877 为 HEAD 祖先。blockSync=false（useEeConfig.ts:158）；View.vue:173 去 isEeUI 仅限 syncs watch、:572 tab flag 化；BaseSettingsMenu.vue:166-183 flag 化；store/sync.ts 未动。
+- **i18n**：14 个 syncs* 键 + manageSyncs 在 en/zh-Hans 双份且键集合一致；组件 t() 消费 15 键全部有定义。
+- **ACL 矩阵（API 实测）**：owner 对 `/api/v2/meta/bases/:id/syncs` list/create + `/api/v2/meta/syncs/:id` patch/delete 全 200；editor 四操作全 403；viewer 四操作全 403；匿名四操作全 401。internal op `atImportTrigger`：owner 200（返回 job id）、editor 403。
+- **CRUD e2e**：create（type Airtable + details JSON）→ list 含行 → PATCH title+details 落库复核（`{"apiKey":"fake2"}`）→ DELETE 200 → relist 归零 → 重建 UI 测试行。
+- **UI 段（owner 会话）**：面板渲染（卡片/title/type/details keys/hint）✅；Edit 回填 title+JSON → 改 title 保存 → toast "Sync source updated" → UI 刷新 + API 落库（f05r5l3-ui-sync-v2）✅；Delete 确认框（title/描述插值正确）→ 确认 → 行消失 + 空态文案 + API 归零 ✅；console error 与 Nuxt overlay 双零 ✅。
+- **editor UI 隔离**：独立会话登录 editor，settings 侧栏 testid 清单 = base-collaborator/base-mcp/access-settings/mcp——**无 base-syncs**；直接 URL `#/nc/:baseId/settings/syncs` 不渲染面板（无 `.nc-base-syncs`）✅。
+- **App Sync 隔离**：`isSyncFeatureEnabled` 恒 false（store/sync.ts:19）；base Integrations tab 实测无 "App Sync" 文本、无 add-connection 入口（AUTH 类 integration 被 Integrations.vue:123 门过滤）；workspace 页无 integrations/App Sync 入口 ✅。
+- **回归 smoke**：F02/F03 permissionList 200；F05 variables 200（v2 路径）；F07 snapshots 200；F08 base GET 200；F10 dashboards 200；base 侧栏 Variables/Snapshots/Integrations 菜单齐全；Import 菜单 Airtable 入口在（向导未回归）✅。
+- **质量门**：`npx tsc --noEmit` exit 0；jest 3 suites **41/41 passed**（Fork 桶较 R1 基线 26 增至 41，系后续功能新增 Fork.spec，全绿）。
 
-### 质量门
-- `cd packages/nocodb && npx tsc --noEmit` exit 0
-- jest：Test Suites 2 passed / **Tests 26 passed 26**，exit 0
+## 观察项（非 error）
 
-## E3 / 已知沿袭（不计 error）
-- FAILED 详情恒泛型：job `result=null` 实测复现（上游 setJobResult 零调用），UI 回落泛型失败文案——沿袭 R1-R4 清单。
-- 重同步全链路需真实 Airtable 凭证（fork 限制）。
-- AirtableImport 向导深走（无凭证段）。
-- dev 库 869 用户噪声；v1 bulkUpsert 500 / v1 title 寻表 404 / sharedView meta / duplicate >1000 行等沿袭项本轮未重点复测（非 F04 触碰面）。
+1. `syncStatus` 文本为组件会话态：Edit 保存刷新列表后行内仍显示上轮 "Sync failed"，面板重进即清。无害反馈残留，不建议改。
+2. 侧栏 Manage Syncs 的 `LazyPaymentUpgradeBadge`（BaseSettingsMenu.vue:181，`:feature-enabled-callback="() => !isEEFeatureBlocked"`）在解锁态渲染为 hidden——与 F07 Snapshots 菜单行为逐字节一致（对照实测），F07 先例模式。
+3. 双击实验采用同任务零间隔双 click，严于真实 dblclick；真实双击间隔更大，锁置位只会更早，结论不受影响。
+4. shell 侧 curl `signin` 会使 UI 侧 auth token 失效（token_version 递增互踢），本轮 owner UI 会话被自建脚本踢过一次后重登完成剩余测试。R4 纪律「每路自建专属账号」正确性再次实证；lane 内脚本应避免对 UI 在用账号 signin。
+5. workspace 主页 SPA 导航时偶发一帧 "Page Loading Error"（reload 即消失）——上游框架瞬态，非 F04 引入。
 
-## 环境备注（流程观察，非 issue）
-- :3000/:3100 前端 dev server 在多 lane 并发（4 个 nuxt dev 实例 + usePolling watcher）下 HTTP 不服务；本 lane 改用 `nuxt build` + 生产 SSR（:3200，`NUXT_PUBLIC_NC_BACKEND_URL=http://localhost:8080`）完成全部 UI 实测，结束后已停。首次 build 因 stale `.output` ENOTEMPTY 失败，清除后重试成功。
-- 共享 owner（f03r3-owner）多路互踢复现：API token 被 UI 同账号登录失效。本 lane 全程改用专属 owner（f05r5l3-owner）+ creator 做 API，互踢不再影响；UI 与 API 分账号。
+## E3（不计 error，沿袭 + 本轮新增证据）
 
-## 测试资产清理
-专属 base `f05r5l3-base`（pdsh7dpygo2r3p9）DELETE 200；f05r5l3-{owner,creator,editor,viewer}@t.local 四账号全删；`f05r5l3-*` 前缀用户残留 0（users list 复查）。camoufox 两会话（f05r5l3 / f05r5l3e）已关。
+- FAILED 详情恒泛型（上游 setJobResult 零调用）：本轮实测伪凭证 job `result.error` 为 null → UI 显示 "Sync failed" 泛型，与已知 E3 一致。
+- v1 bulkUpsert 500 / v1 title 寻表 404 / sharedView meta / duplicate >1000 行 / v2 upsert 旗标 / dev 库 700+ 测试账号噪声：未复测，沿袭 R4 清单。
+- 重同步全链路需真实 Airtable 凭证（fork 限制）：本轮以伪凭证覆盖 trigger/watchdog/FAILED 路径，均在 fork 限制范围。
+
+## 资产清理
+
+- base p08xokzkbr2hphj（f05r5l3-base）已删除（DELETE 200，GET 复核 Base not found）
+- camoufox 会话 f05r5l3 / f05r5l3-ed 已 close；/tmp 下 lane token/脚本已删
+- 账号 f05r5l3-owner/editor/viewer@t.local 保留（与其他轮次测试账号同样留存于 dev 库，属 E3 噪声口径）
