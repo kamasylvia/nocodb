@@ -97,15 +97,19 @@ export class TableSyncsService {
     // BaseUser.get joins workspace/main roles in but castType drops them from
     // the declared type — read them off the raw row
     const raw = baseUser as any;
-    const effectiveRoles = [raw?.roles, raw?.workspace_roles, raw?.main_roles]
-      .filter(Boolean)
-      .flatMap((r) => String(r).split(','));
+    // [CE-EE] F09 R2(lane1): BASE-LEVEL membership is required — the
+    // innerJoin always yields a row for any workspace user (base role NULL,
+    // workspace_roles='workspace-level-no-access', main_roles defaults to
+    // 'editor'), so role-string exclusion checks can never deny. No base
+    // role == no access (F08 hide-existence semantics): the workspace row
+    // must not grant read access to a base this user was never added to.
+    const baseRoles = String(raw?.roles ?? '')
+      .split(',')
+      .filter(Boolean);
 
-    const hasReadAccess =
-      baseUser &&
-      effectiveRoles.some(
-        (r) => r && r !== 'no_access' && r !== ProjectRoles.NO_ACCESS,
-      );
+    const hasReadAccess = baseRoles.some(
+      (r) => r !== 'no_access' && r !== ProjectRoles.NO_ACCESS,
+    );
     if (!hasReadAccess) {
       // hide existence of the source base
       NcError.baseNotFound(sourceBaseId);
@@ -493,10 +497,13 @@ export class TableSyncsService {
         );
       }
     }
+    // [CE-EE] F09 R2(lane5): invalidate the list key (PARENT_TO_CHILD) — the
+    // previous model-scoped key never matched the actual cache entries
+    // (COLUMN:<modelId>:list / COLUMN:<colId>) and was a silent no-op
     await NocoCache.deepDel(
       context,
-      `${CacheScope.COLUMN}:${mirrorModel.id}`,
-      CacheDelDirection.CHILD_TO_PARENT,
+      `${CacheScope.COLUMN}:${mirrorModel.id}:list`,
+      CacheDelDirection.PARENT_TO_CHILD,
     );
 
     const sync = await TableSync.insert(context, {
