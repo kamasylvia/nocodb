@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
+import NocoCache from '~/cache/NocoCache';
 import {
+
   isVirtualCol,
   ProjectRoles,
   UITypes,
@@ -21,11 +23,12 @@ import Base from '~/models/Base';
 import BaseUser from '~/models/BaseUser';
 import Model from '~/models/Model';
 import View from '~/models/View';
+import GridViewColumn from '~/models/GridViewColumn';
 import TableSync from '~/models/TableSync';
 import { NcError } from '~/helpers/catchError';
 import { generateUniqueName } from '~/helpers/exportImportHelpers';
 import { TablesService } from '~/services/tables.service';
-import { MetaTable } from '~/utils/globals';
+import { CacheDelDirection, CacheScope, MetaTable } from '~/utils/globals';
 import Noco from '~/Noco';
 
 // [CE-EE] F09: Table Sync (P1 = manual "NocoDB Sync" minimum loop). The sync
@@ -432,6 +435,69 @@ export class TableSyncsService {
     })) as Model;
 
     await mirrorModel.getColumns(context);
+
+    // [CE-EE] F09 R1(lane5): hide the engine bookkeeping columns from the
+    // mirror's default grid view (standard view-column show=false — works
+    // regardless of the meta system flag path)
+    const mirrorViews = (await View.list(context, mirrorModel.id)) as any[];
+    console.debug(
+      `[F09-hide] views=${mirrorViews?.length} shapes=${JSON.stringify((mirrorViews ?? [])[0] ? Object.keys((mirrorViews ?? [])[0]).slice(0, 12) : [])}`,
+    );
+    const grid = (mirrorViews ?? []).find(
+      (v: any) => v.view_type === ViewTypes.GRID || v.type === ViewTypes.GRID,
+    );
+    console.debug(`[F09-hide] grid=${grid?.id ?? 'none'}`);
+    if (grid?.id) {
+      const gcRows = (await GridViewColumn.list(context, grid.id)) as any[];
+      console.debug(`[F09-hide] gcRows=${gcRows?.length}`);
+      // [CE-EE] F09 R1(lane5): GVC rows carry fk_column_id but NO title —
+      // match against the mirror model's system column ids instead
+      const sysColIds = (mirrorModel.columns ?? [])
+        .filter(
+          (c: any) => c.title === 'RemoteId' || c.title === 'RemoteDeleted',
+        )
+        .map((c: any) => c.id);
+      let hidden = 0;
+      for (const gc of gcRows ?? []) {
+        if (sysColIds.includes(gc.fk_column_id)) {
+          await GridViewColumn.update(context, gc.id, { show: false });
+          hidden += 1;
+        }
+      }
+      console.debug(`[F09-hide] hidden=${hidden}`);
+    }
+
+    // [CE-EE] F09 R1(lane3/lane4): the generic table-create meta path drops
+    // the custom system flag on appended sync system columns (CreatedAt-style
+    // seeds persist, customer-payload columns do not) — force it post-create
+    // so isHiddenCol hides RemoteId/RemoteDeleted from the grid. Direct meta
+    // list+update (bypasses the model column cache and Column.update's
+    // narrow whitelist, both of which were verified to drop the flag).
+    const mirrorColumnRows = (await Noco.ncMeta.metaList2(
+      context.workspace_id,
+      context.base_id,
+      MetaTable.COLUMNS,
+      { condition: { fk_model_id: mirrorModel.id } },
+    )) as any[];
+    for (const colRow of mirrorColumnRows) {
+      if (
+        (colRow.title === 'RemoteId' || colRow.title === 'RemoteDeleted') &&
+        !colRow.system
+      ) {
+        await Noco.ncMeta.metaUpdate(
+          context.workspace_id,
+          context.base_id,
+          MetaTable.COLUMNS,
+          { system: true },
+          colRow.id,
+        );
+      }
+    }
+    await NocoCache.deepDel(
+      context,
+      `${CacheScope.COLUMN}:${mirrorModel.id}`,
+      CacheDelDirection.CHILD_TO_PARENT,
+    );
 
     const sync = await TableSync.insert(context, {
       base_id: baseId,
