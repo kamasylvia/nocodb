@@ -269,36 +269,37 @@ watch(selectedTableId, (id) => {
         </div>
       </div>
 
-      <template #footer>
-        <div class="flex justify-end gap-2">
-          <NcButton
-            v-if="step > 0"
-            type="secondary"
-            data-testid="table-sync-back"
-            @click="step = (step - 1) as 0 | 1"
-          >
-            {{ $t('general.back') }}
-          </NcButton>
-          <NcButton
-            v-if="step < 2"
-            type="primary"
-            :disabled="step === 0 ? !selectedTableId || !schema?.view : false"
-            data-testid="table-sync-next"
-            @click="step = (step + 1) as 1 | 2"
-          >
-            {{ $t('general.next') }}
-          </NcButton>
-          <NcButton
-            v-else
-            type="primary"
-            :loading="isCreating"
-            data-testid="table-sync-create"
-            @click="createSync()"
-          >
-            {{ $t('labels.createSyncTable') }}
-          </NcButton>
-        </div>
-      </template>
+      <!-- [CE-EE] F09 R1(lane2/3/4): buttons moved from #footer into the body —
+           nc/Modal hardcodes :footer="null" without a footer slot outlet, so
+           footer-slot content never rendered -->
+      <div class="flex justify-end gap-2 mt-4">
+        <NcButton
+          v-if="step > 0"
+          type="secondary"
+          data-testid="table-sync-back"
+          @click="step = (step - 1) as 0 | 1"
+        >
+          {{ $t('general.back') }}
+        </NcButton>
+        <NcButton
+          v-if="step < 2"
+          type="primary"
+          :disabled="step === 0 ? !selectedTableId || !schema?.view : false"
+          data-testid="table-sync-next"
+          @click="step = (step + 1) as 1 | 2"
+        >
+          {{ $t('general.next') }}
+        </NcButton>
+        <NcButton
+          v-else
+          type="primary"
+          :loading="isCreating"
+          data-testid="table-sync-create"
+          @click="createSync()"
+        >
+          {{ $t('labels.createSyncTable') }}
+        </NcButton>
+      </div>
     </NcModal>
   </div>
 </template>

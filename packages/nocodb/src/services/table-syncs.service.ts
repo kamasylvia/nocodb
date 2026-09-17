@@ -397,6 +397,10 @@ export class TableSyncsService {
         column_name: c.title.toLowerCase(),
         uidt: c.uidt,
         readonly: true,
+        // [CE-EE] F09 R1(lane3/lane4): system:true is required for
+        // isHiddenCol to hide these from the grid (readonly alone is not
+        // enough — R1 screenshot showed RemoteId exposed)
+        system: true,
       })),
     ];
 

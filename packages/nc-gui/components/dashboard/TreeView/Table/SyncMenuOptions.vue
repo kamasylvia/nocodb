@@ -122,22 +122,22 @@ const onDelete = async () => {
       <div class="text-sm">
         {{ sync.title }} — "{{ table.title }}"
       </div>
-      <template #footer>
-        <div class="flex justify-end gap-2">
-          <NcButton type="secondary" data-testid="table-sync-delete-cancel" @click="isDeleteConfirmOpen = false">
-            {{ $t('general.cancel') }}
-          </NcButton>
-          <NcButton
-            type="primary"
-            class="!bg-nc-content-red-medium !text-white"
-            data-testid="table-sync-delete-confirm"
-            :loading="isUpdating"
-            @click="onDelete"
-          >
-            {{ $t('labels.deleteSync') }}
-          </NcButton>
-        </div>
-      </template>
+      <!-- [CE-EE] F09 R1(lane2/3/4): buttons moved from #footer into the body —
+           nc/Modal hardcodes :footer="null" without a footer slot outlet -->
+      <div class="flex justify-end gap-2 mt-4">
+        <NcButton type="secondary" data-testid="table-sync-delete-cancel" @click="isDeleteConfirmOpen = false">
+          {{ $t('general.cancel') }}
+        </NcButton>
+        <NcButton
+          type="primary"
+          class="!bg-nc-content-red-medium !text-white"
+          data-testid="table-sync-delete-confirm"
+          :loading="isUpdating"
+          @click="onDelete"
+        >
+          {{ $t('labels.deleteSync') }}
+        </NcButton>
+      </div>
     </NcModal>
   </div>
 </template>
