@@ -121,8 +121,19 @@ export class TableSyncsService {
         // hide existence of the source base
         NcError.baseNotFound(sourceBaseId);
       }
-    } else if (!sourceBase) {
-      NcError.baseNotFound(sourceBaseId);
+    } else {
+      // [CE-EE] F09 R4(lane5): non-private bases inherit workspace access —
+      // but ws-level-no-access (the signup default) must NOT grant read.
+      // Zero-role users are likewise denied (hide existence).
+      const wsRoles = String(raw?.workspace_roles ?? '')
+        .split(',')
+        .filter(Boolean);
+      const wsRead = wsRoles.some(
+        (r) => r && r !== 'workspace-level-no-access',
+      );
+      if (!wsRead) {
+        NcError.baseNotFound(sourceBaseId);
+      }
     }
   }
 
@@ -454,17 +465,12 @@ export class TableSyncsService {
     // mirror's default grid view (standard view-column show=false — works
     // regardless of the meta system flag path)
     const mirrorViews = (await View.list(context, mirrorModel.id)) as any[];
-    console.debug(
-      `[F09-hide] views=${mirrorViews?.length} shapes=${JSON.stringify((mirrorViews ?? [])[0] ? Object.keys((mirrorViews ?? [])[0]).slice(0, 12) : [])}`,
-    );
     const grid = (mirrorViews ?? []).find(
       (v: any) => v.view_type === ViewTypes.GRID || v.type === ViewTypes.GRID,
     );
-    console.debug(`[F09-hide] grid=${grid?.id ?? 'none'}`);
-    if (grid?.id) {
+        if (grid?.id) {
       const gcRows = (await GridViewColumn.list(context, grid.id)) as any[];
-      console.debug(`[F09-hide] gcRows=${gcRows?.length}`);
-      // [CE-EE] F09 R1(lane5): GVC rows carry fk_column_id but NO title —
+            // [CE-EE] F09 R1(lane5): GVC rows carry fk_column_id but NO title —
       // match against the mirror model's system column ids instead
       const sysColIds = (mirrorModel.columns ?? [])
         .filter(
@@ -478,8 +484,7 @@ export class TableSyncsService {
           hidden += 1;
         }
       }
-      console.debug(`[F09-hide] hidden=${hidden}`);
-    }
+          }
 
     // [CE-EE] F09 R1(lane3/lane4): the generic table-create meta path drops
     // the custom system flag on appended sync system columns (CreatedAt-style
