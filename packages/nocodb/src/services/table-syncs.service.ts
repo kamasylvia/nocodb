@@ -97,21 +97,31 @@ export class TableSyncsService {
     // BaseUser.get joins workspace/main roles in but castType drops them from
     // the declared type — read them off the raw row
     const raw = baseUser as any;
-    // [CE-EE] F09 R2(lane1): BASE-LEVEL membership is required — the
-    // innerJoin always yields a row for any workspace user (base role NULL,
-    // workspace_roles='workspace-level-no-access', main_roles defaults to
-    // 'editor'), so role-string exclusion checks can never deny. No base
-    // role == no access (F08 hide-existence semantics): the workspace row
-    // must not grant read access to a base this user was never added to.
-    const baseRoles = String(raw?.roles ?? '')
-      .split(',')
-      .filter(Boolean);
+    // [CE-EE] F09 R2(lane1): the innerJoin always yields a row for any
+    // workspace user (base role NULL, workspace_roles may be
+    // 'workspace-level-no-access', main_roles defaults to 'editor') —
+    // role-string exclusion checks can never deny.
+    //
+    // [CE-EE] F09 R3(lane2): split by is_private — CE workspace inheritance
+    // (WorkspaceRolesToProjectRoles) lets workspace members read non-private
+    // bases (platform layer confirms GET base/data 200), so requiring a base
+    // role unconditionally broke the create wizard for non-members (404 dead
+    // end). Private bases keep the F08 hide-existence requirement: explicit
+    // base role or 404.
+    const sourceBase = await Base.get(sourceContext, sourceBaseId);
+    if (sourceBase?.is_private) {
+      const baseRoles = String(raw?.roles ?? '')
+        .split(',')
+        .filter(Boolean);
 
-    const hasReadAccess = baseRoles.some(
-      (r) => r !== 'no_access' && r !== ProjectRoles.NO_ACCESS,
-    );
-    if (!hasReadAccess) {
-      // hide existence of the source base
+      const hasReadAccess = baseRoles.some(
+        (r) => r !== 'no_access' && r !== ProjectRoles.NO_ACCESS,
+      );
+      if (!hasReadAccess) {
+        // hide existence of the source base
+        NcError.baseNotFound(sourceBaseId);
+      }
+    } else if (!sourceBase) {
       NcError.baseNotFound(sourceBaseId);
     }
   }
