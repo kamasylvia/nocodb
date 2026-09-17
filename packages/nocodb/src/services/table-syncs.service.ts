@@ -97,33 +97,46 @@ export class TableSyncsService {
     // BaseUser.get joins workspace/main roles in but castType drops them from
     // the declared type — read them off the raw row
     const raw = baseUser as any;
-    // [CE-EE] F09 R5(lane1/2/3): mirror the platform predicate
+    // [CE-EE] F09 R5(lane1/2/3/5): mirror the platform predicate
     // (BaseUser.ts:563-631 / User.getWithRoles) exactly:
     // 1. explicit base role ∉ {no_access, NO_ACCESS, inherit} → read
-    // 2. base role null/inherit ∧ workspace role ≠ no-access → read
+    // 2. base role null/''/inherit ∧ workspace role ≠ no-access → read
     //    (workspace inheritance, non-private bases only)
+    // 3. explicit base role = no_access → deny (overrides ws inheritance)
+    // 4. no base row → deny
     // Private bases: workspace inheritance never applies — only path 1.
     const sourceBase = await Base.get(sourceContext, sourceBaseId);
     const baseRole = String(raw?.roles ?? '');
+    const wsRoles = String(raw?.workspace_roles ?? '')
+      .split(',')
+      .filter(Boolean);
+
+    // path 1: explicit base role, not no_access and not inherit
     const hasExplicitBaseRole =
       baseRole !== '' &&
       baseRole !== 'no_access' &&
       baseRole !== ProjectRoles.NO_ACCESS &&
       baseRole !== 'inherit';
-    const wsRoles = String(raw?.workspace_roles ?? '')
-      .split(',')
-      .filter(Boolean);
-    const hasWsRead = wsRoles.some((r) => r !== 'workspace-level-no-access');
+    // path 3: explicit no_access denies regardless of ws inheritance
+    const baseNoAccess =
+      baseRole === 'no_access' || baseRole === ProjectRoles.NO_ACCESS;
 
     if (sourceBase?.is_private) {
-      // private: only an explicit base role grants access (path 1)
+      // private: only path 1
       if (!hasExplicitBaseRole) {
-        // hide existence of the source base
         NcError.baseNotFound(sourceBaseId);
       }
-    } else if (!hasExplicitBaseRole && !hasWsRead) {
-      // non-private: explicit role or workspace inheritance
+    } else if (baseNoAccess) {
+      // non-private: explicit no_access denies regardless of ws role
       NcError.baseNotFound(sourceBaseId);
+    } else if (!hasExplicitBaseRole) {
+      // non-private: base role absent or inherit — check ws role
+      const wsNoAccess =
+        wsRoles.length === 0 ||
+        wsRoles.every((r) => r === 'workspace-level-no-access');
+      if (wsNoAccess) {
+        NcError.baseNotFound(sourceBaseId);
+      }
     }
   }
 
