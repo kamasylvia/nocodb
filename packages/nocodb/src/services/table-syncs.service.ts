@@ -97,43 +97,33 @@ export class TableSyncsService {
     // BaseUser.get joins workspace/main roles in but castType drops them from
     // the declared type — read them off the raw row
     const raw = baseUser as any;
-    // [CE-EE] F09 R2(lane1): the innerJoin always yields a row for any
-    // workspace user (base role NULL, workspace_roles may be
-    // 'workspace-level-no-access', main_roles defaults to 'editor') —
-    // role-string exclusion checks can never deny.
-    //
-    // [CE-EE] F09 R3(lane2): split by is_private — CE workspace inheritance
-    // (WorkspaceRolesToProjectRoles) lets workspace members read non-private
-    // bases (platform layer confirms GET base/data 200), so requiring a base
-    // role unconditionally broke the create wizard for non-members (404 dead
-    // end). Private bases keep the F08 hide-existence requirement: explicit
-    // base role or 404.
+    // [CE-EE] F09 R5(lane1/2/3): mirror the platform predicate
+    // (BaseUser.ts:563-631 / User.getWithRoles) exactly:
+    // 1. explicit base role ∉ {no_access, NO_ACCESS, inherit} → read
+    // 2. base role null/inherit ∧ workspace role ≠ no-access → read
+    //    (workspace inheritance, non-private bases only)
+    // Private bases: workspace inheritance never applies — only path 1.
     const sourceBase = await Base.get(sourceContext, sourceBaseId);
-    if (sourceBase?.is_private) {
-      const baseRoles = String(raw?.roles ?? '')
-        .split(',')
-        .filter(Boolean);
+    const baseRole = String(raw?.roles ?? '');
+    const hasExplicitBaseRole =
+      baseRole !== '' &&
+      baseRole !== 'no_access' &&
+      baseRole !== ProjectRoles.NO_ACCESS &&
+      baseRole !== 'inherit';
+    const wsRoles = String(raw?.workspace_roles ?? '')
+      .split(',')
+      .filter(Boolean);
+    const hasWsRead = wsRoles.some((r) => r !== 'workspace-level-no-access');
 
-      const hasReadAccess = baseRoles.some(
-        (r) => r !== 'no_access' && r !== ProjectRoles.NO_ACCESS,
-      );
-      if (!hasReadAccess) {
+    if (sourceBase?.is_private) {
+      // private: only an explicit base role grants access (path 1)
+      if (!hasExplicitBaseRole) {
         // hide existence of the source base
         NcError.baseNotFound(sourceBaseId);
       }
-    } else {
-      // [CE-EE] F09 R4(lane5): non-private bases inherit workspace access —
-      // but ws-level-no-access (the signup default) must NOT grant read.
-      // Zero-role users are likewise denied (hide existence).
-      const wsRoles = String(raw?.workspace_roles ?? '')
-        .split(',')
-        .filter(Boolean);
-      const wsRead = wsRoles.some(
-        (r) => r && r !== 'workspace-level-no-access',
-      );
-      if (!wsRead) {
-        NcError.baseNotFound(sourceBaseId);
-      }
+    } else if (!hasExplicitBaseRole && !hasWsRead) {
+      // non-private: explicit role or workspace inheritance
+      NcError.baseNotFound(sourceBaseId);
     }
   }
 
