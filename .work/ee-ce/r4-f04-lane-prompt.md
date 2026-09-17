@@ -12,3 +12,8 @@
 - **严禁 psql 提全局 super**（owner 直通假放行）；账号只建/动自己前缀。
 - UI/API token 互踢：每路自建专属账号。
 - 其余全矩阵/质量门要求同 R1 任务书。
+
+## R5 专属附录（R4 修复批回归，commit 9188e0f1ff）
+
+1. **resync 乐观置位锁**：syncingId 置位移至 trigger POST 之前——同 tick 双击 Resync 实测**仅 1 发** atImportTrigger（performance API 计数），第二击命中 guard 弹 "Syncing…" info toast；不依赖后端 400 去重。
+2. 锁释放路径完备（COMPLETED/FAILED/timeout/catch 全清）；失败终态后 Resync 可再点。
