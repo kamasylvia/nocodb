@@ -2,8 +2,17 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 09:0x（**F09 R6 裁决 + 修复 5a11c4ab86 + R7 外部阵容派遣**：09:00 起按固化表切外部 omp/kilo/reasonix/pi + subagent lane5；连击 0/3）
-- LOCK: active（F09 R7 五路在飞；巡检 automation 每整点触发）
+- 更新时间: 2026-09-18 10:0x（**R7 lane5 抓获 5a11c4ab86 blocker 回归已修 9c4db33fe1**；R7 外部四路 CLI 在飞，UI 段受坏页窗口影响、裁决时按已知事故归因；连击 0/3）
+- LOCK: active（F09 R7 四路 CLI 在飞；巡检 automation 每整点触发）
+
+## F09 R7 进行中（2026-09-18 08:58 派遣，外部阵容首发）
+
+- 阵容：lane1 omp / lane2 kilo / lane3 reasonix / lane4 pi / lane5 ZCode subagent（已完成）
+- **lane5 = 1 error blocker（5a11c4ab86 我方回归，已修 9c4db33fe1）**：CreateNewSync.vue setup 顶层 `const { loadTables } = useBase()` 与既有本地 `loadTables(baseId)`（源表加载器）重复声明 → SFC 编译失败 → 任意 base 页 Nuxt 错误页。修法：store 版别名 `refreshBaseTables`
+- **质量门盲区教训（重要）**：①我方上一批「HMR compiles clean」验证不实——CreateNewSync 是懒加载路由组件，验证时从未触发编译，日志无该文件 ≠ 编译过；②tsc/jest 均不编译 .vue。**新增验证步：`curl http://localhost:3000/_nuxt/components/<path>.vue` 强制 SFC 过 Vite 编译管线（修复前该 URL 500 duplicate identifier，修复后 200）**；vue-tsc 全量门记 backlog（可能暴露存量错误，另行处理）
+- 外部路启动事故（已归因闭环）：omp 首发RegionError 403 → `px --proxy` 注入重试 ✓；kilo 回落内置 Qwen3-Coder（jd 无 key）→ kilo.jsonc 补 `"model": "clinepass/cline-pass/mimo-v2.5"` 默认重试 ✓
+- 坏页窗口（09:29 lane5 重启前端坐实 → 10:0x 修复）：期间四路 CLI 的 UI 段若报「base 页错误页」，裁决时按已知事故归因，非独立发现；若路报出重复声明根因 = 有效捕获
+- lane5 API 面全绿：R6-A 六格 + R6-B 四象限复跑一致、谓词十格逐字等价、绕路面干净、ACL 十端点、引擎 e2e、探针全过（tsc 0 + jest 15/15——子集桶）
 
 ## F09 R6 裁决 + 修复 + R7 派遣（2026-09-18 09:0x，5/5 报告）
 
