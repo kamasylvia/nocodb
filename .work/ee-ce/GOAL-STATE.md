@@ -2,7 +2,16 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 21:1x（**用户定夺：F06=C 维持裁剪；F09 P2+P3+P4 全做**——LOCK active，F09 P2 实现开工）
+- 更新时间: 2026-09-19 06:0x（**F09 P2 PASS**：R2/R3/R4 连续清洁连击 3/3；P3 incremental/realtime 实现开工在即）
+- LOCK: active（F09 P3 实现阶段）
+
+## F09 P2 PASS（2026-09-19 06:0x，R2/R3/R4 连续清洁连击 3/3）
+
+- 实现链：a4959c27cd（P2 主体：paste 模式/selected_fields 传播/源列类型漂移传播/detach/灰区修复）→ 366e0b7045（R1 五 error：paste context 错位/映射删键/columnAdd 返回 Model/resolveLink 泄露/菜单守卫）→ 253c3b6ee5（R3：editor Overview 卡 gate/hash URL/凭据剥离/日志序）
+- 复审史：R1（五 error 五路汇合）→ R2（5/5 全 PASS，五 error 修复活体逐项验证）→ R3（4 PASS + lane5 1E 单路修而不计 + 2M 小修）→ R4（5/5 全 PASS 0 error）
+- R4 终裁亮点：lane1 paste 向导全流程活体 + 4952/2000/6002 行级分页引擎三路独立验证；lane3 安全审计（凭据四重 grep 零命中/403 body 零坐标泄露）；lane4 漂移日志「bigint → SingleLineText」旧值在前活体实锤
+- pass 后 backlog：M2 漂移当轮 destBaseModel 旧类型 cast（观察级）、Convert 后 grid 瞬时空白（UX 瞬态，P3 顺带查 removeMeta→视图重建时序）、views.service shareViewUpdate 密码不落库（上游 backlog）、getSync/listSyncs 字段命名不对称观察（camelCase PATCH no-op）、paste resync 不复验 hash（EE 语义未定）
+- P3 范围（下一实现阶段）：incremental 增量（RemoteUpdatedAt + syncNoUpdatedAtColumn 引导）+ realtime（源 hooks → TableSyncRun job affectedIdsBySource 批发）+ 解 blockTableSyncAuto + 向导 Automatically 档；Convert 后 grid 瞬时空白顺带查
 - LOCK: active（F09 P2 实现中；每阶段独立会审 3 连击）
 - **用户裁定（2026-09-18 21:0x）**：①F06 维持选项 C（不重启，fork 限制记档）②F09 P2（生命周期）+P3（incremental/realtime+AUTO 解锁）+P4（LTAR 三层）全做，顺序 P2→P3→P4，每阶段独立过会审闭环；Custom Sync 维持裁剪
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**

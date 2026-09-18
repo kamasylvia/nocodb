@@ -12,7 +12,7 @@
 - [x] F02 Edit field permissions — **pass（2026-09-14，R7/R8 连续清洁连击 3/3；实现 4b26d7a23f + 七轮修复终 ca6c81f5a6）**：字段级编辑权限全链路（nc_permissions 表/8 数据挂点/CRUD API/UI 弹窗+Details tab/交叉重名防劫持）
 - [x] F03 Data permissions — **pass（2026-09-16，R4/R5/R6 连续清洁连击 3/3；实现 7b10716231 + 修复链终 51b9637b84）**：TABLE_RECORD_ADD/DELETE/VISIBILITY 全链路 + duplicate/restore 带 grants + 加固批（context.permissions memo 消费，bulk 放大 5x 消除）
 - [ ] F06 Docs Permissions — **fork 限制裁剪，用户确认维持 C（2026-09-18）**：Docs 本体 CE 零存在；可逆（f06-research.md A/B 选项存档）
-- [ ] F09 Sync data P2 — **生命周期完备（用户确认全做 2026-09-18）**：转正/detach、selected_fields 变更传播、源列类型变更传播、paste 模式、P1 灰区修复（resync 复检/空数组校验/原子性）；实现 + 会审 3 连击
+- [x] F09 Sync data P2 — **PASS（2026-09-19，R2/R3/R4 连击 3/3；实现 a4959c27cd + 修复链终 253c3b6ee5）**：paste 模式（uuid+bcrypt 凭据持久化）、selected_fields 增删传播、源列类型漂移传播、detach 转正、灰区修复（resync 复检/原子性/空数组）+ editor 卡 gate/hash URL/凭据剥离
 - [ ] F09 Sync data P3 — incremental/realtime + FEATURE_TABLE_SYNC_AUTO 解锁 + 向导 Automatically 档
 - [ ] F09 Sync data P4 — LTAR 关系同步三层（Main/LinkedShadow/Junction）
 - [x] F04 Manage Syncs — **pass（2026-09-17，R3/R4/R5 连续清洁连击 3/3；实现 2fd09efccf + 修复链终 b6c95cb3ac/51b9637b84 hardening）**：legacy SyncSource 管理面板（列表/编辑/删除/重同步 watchdog）+ 双入口解 gate + i18n；App Sync 引擎裁掉待 F09 评估
