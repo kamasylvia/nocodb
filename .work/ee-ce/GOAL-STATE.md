@@ -2,16 +2,21 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 19:1x（**R10 终裁：5/5 全 0 error（lane3 BLOCKED-static）→ 清洁轮连击 2/3；R11 五路已派（pass 冲刺轮）**）
-- LOCK: active（F09 R11 五路在飞；巡检 automation 每整点触发）
+- 更新时间: 2026-09-18 20:5x（**F09 P1 PASS**：R9/R10/R11 连续清洁连击 3/3；功能 9/10，剩 F06 fork 限制裁剪）
+- **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
+- **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
+- **后端状态（18:00 自愈后）**：运行时副本在内置 SSD `~/.nocodb-run`（pid 4342，health 200）；启动脚本 `.work/ee-ce/dev-backend-internal.sh`（现依赖 ~/.zcode/.env 软链 + ~/.agents/config.toml 的 INFISICAL_PROJECT_ID_KDL 注入）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**
+- **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main
+- **复审阵容分时（正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
+- LOCK: idle（F09 P1 pass 收官；全部裁定功能完成，待用户指令：F06 重启 / F09 P2+ / 收尾）
 
-## F09 R10 终裁 + R11 派遣（2026-09-18 19:1x）
+## F09 P1 PASS（2026-09-18 20:5x，R9/R10/R11 连续清洁连击 3/3）
 
-- verdict：**0 error 清洁轮 → 连击 2/3**。lane1 omp PASS（px --up 刷新订阅换节点后 muse 复活；删除流三腿 + 判别对照全活体 9 截图）、lane2 kilo PASS（tsc 0 + jest 41/41）、lane4 pi PASS（质量门全绿）、lane5 subagent PASS（0E + 2 观察级 minor：测试脚本歧义不可复现 + columns[].show=null 沿袭措辞，均不修）、lane3 reasonix BLOCKED-static PASS（沙箱同前轮）
-- **运维闭环**：muse 网关流超时（R9 lane1 两连败）定性为节点侧——px --up（订阅刷新+换最快节点）后恢复；xray daemon 亦随 18:00 宕机潮消亡，px --up 一条龙验证有效
-- reasonix 默认模型修复：config.toml 真身（Developments/agents/reasonix/，软链目标）`default_model` 从失效的 custom-opencode-ai/union-alpha 改 custom-api-cline-bot/cline-pass/mimo-v2.5——未提交，随 agents 仓其它未竟改动留用户处置
-- R11 派遣（19:0x，pass 冲刺轮）：五路外部阵容全受追踪；prompt r11-f09-lane-prompt.md（R10 同规格站位回归 + R10 lane5 观察项沿袭）
-- **R11 再 0 error → 连击 3/3 → F09 P1 pass（功能 9/10）**
+- 实现链：71896a841f（impl：TableSync model + 十端点 controller + RemoteId 键控 processor + 向导/树菜单 UI + blockTableSync gate）→ R2 修复（c051bfa3db + 551694ecbe + 798e860dd1：is_private 分流/缓存失效键/console.debug）→ f81e24a4f4（R5 断言重写镜像平台谓词）→ dd46a3eb1d（R5 E1 显式 no_access 短路）→ aabe3587fe（R5 minors：可搜索选择器/树菜单 open-watch/删除流重写）→ 5a11c4ab86（R6：创建流 loadTables + 删除流 oldActiveTableId 时序）→ 9c4db33fe1（R7 blocker：loadTables 重声明）→ 5e3d736b2a（R8：storeToRefs）
+- 复审史：R1（零关系泄露）→ R2（重试批 + 缓存键）→ R3（4/5 + 补位）→ R4（断言象限）→ R5（E1 五路同判 + minors）→ R6（两路同判创建/删除流）→ R7（blocker 四路）→ R8（storeToRefs）→ R9/R10/R11（连续清洁，外部阵容 + subagent 混编）
+- **最终覆盖面**：browse 模式镜像（非 LTAR）、full-create/full-resync（RemoteId 键控 upsert + delete/mark_deleted 双策略）、freeze/resume/delete、创建向导（可搜索三步）+ 树管理菜单 + Overview 卡 + Share allow_sync 双入口、assertSourceReadAccess 平台谓词逐象限镜像（六格矩阵）、付费锁保持（auto/custom sync 400）
+- backlog（pass 后已知，不阻塞）：selectedFields:[] 空数组、createSync 非原子孤儿表、resync 不复检 allow_sync/源读权限（P2 灰区）、拒绝码 404 vs 平台 403（fail-closed）、legacy 'no_access' 多拒（fail-closed）、FAILED 详情泛型、resolve-link 501、realtime 400（付费锁）、editor 删镜像行 422（上游语义）、paused 菜单 Sync now 400 fail-closed、深链树骨架（框架级）、source-schema 对无 allow_sync 视图 200（create 侧强制灰区）、columns[].show=null 表述差、vue-tsc 质量门（.vue 编译盲区，Vite URL 法已入库）
+- F09 P2（生命周期/P2 paste 模式）/P3（realtime）/P4（LTAR junction/shadow）记分阶段 backlog 待用户指令
 
 ## F09 R8 裁决 + R9 派遣（2026-09-18 12:3x，5/5 报告）
 

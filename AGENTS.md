@@ -11,13 +11,13 @@
 |---|---|---|---|
 | F01 | Unique values only | `FEATURE_UNIQUE` | **pass**（commit 744d3161） |
 | F02 | Edit field permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | **pass**（2026-09-14，实现 4b26d7a23f + 七轮修复终 ca6c81f5a6） |
-| F03 | Data permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | 待做 |
-| F04 | Manage Syncs | `FEATURE_SYNC` | 待做 |
+| F03 | Data permissions | `FEATURE_TABLE_AND_FIELD_PERMISSIONS` | **pass**（2026-09-16，R4/R5/R6 连击 3/3，实现 7b10716231 + 修复链终 51b9637b84） |
+| F04 | Manage Syncs | `FEATURE_SYNC` | **pass**（2026-09-17，R3/R4/R5 连击 3/3，实现 2fd09efccf + 修复链终 b6c95cb3ac） |
 | F05 | Variables (base variables) | `FEATURE_BASE_VARIABLES` | **pass**（commit 6ab23da0） |
-| F06 | Docs Permissions | `FEATURE_DOCUMENT_PERMISSIONS` | 待做 |
+| F06 | Docs Permissions | `FEATURE_DOCUMENT_PERMISSIONS` | **fork 限制裁剪**（2026-09-17 裁定：Docs 本体 CE 零存在；可逆，f06-research.md 三选项） |
 | F07 | Manage Snapshots | `FEATURE_SCHEDULED_SNAPSHOTS` | **pass**（commit bc409929da） |
 | F08 | Base Type - Private | `FEATURE_PRIVATE_BASES` | **pass**（实现 6aea3db097 + 四轮修复，终 e737f8f3ec） |
-| F09 | Sync data (table/custom sync) | `FEATURE_TABLE_SYNC` / `FEATURE_CUSTOM_SYNC` | 待做 |
+| F09 | Sync data (table/custom sync) | `FEATURE_TABLE_SYNC` / `FEATURE_CUSTOM_SYNC` | **P1 pass**（2026-09-18，R9/R10/R11 连击 3/3，实现 71896a841f + 修复链终 5e3d736b2a；P2–P4 backlog） |
 | F10 | Create Dashboard | `LIMIT_DASHBOARD_PER_WORKSPACE` | **pass**（commit ab31f60fe3） |
 
 ## 2. 架构关键认知（改码前必读）
