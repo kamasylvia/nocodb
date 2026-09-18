@@ -54,6 +54,10 @@ const onSyncNow = async () => {
 
 const onDelete = async () => {
   isDeleteConfirmOpen.value = false
+  // [CE-EE] F09 R6(lane1/2/3/4): capture the active table id before remove()
+  // — loadTables() drops the deleted table from the store, so comparing
+  // activeTable afterwards always misses and the redirect branch is dead
+  const oldActiveTableId = activeTable.value?.id
   await remove()
   emit('close')
   // [CE-EE] F09 R5(lane2/3b): useBases() has no loadTables (the earlier
@@ -63,7 +67,7 @@ const onDelete = async () => {
   removeFromRecentViews({ baseId: props.baseId, tableId: props.table.id! })
   removeMeta(props.baseId, props.table.id!, true)
   await loadTables()
-  if (activeTable.value?.id === props.table.id) {
+  if (oldActiveTableId === props.table.id) {
     const remaining = (baseTables.value.get(props.baseId) ?? []).filter(
       (t) => t.id !== props.table.id,
     )

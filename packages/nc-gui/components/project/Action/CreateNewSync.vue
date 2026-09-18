@@ -15,6 +15,7 @@ const { $api } = useNuxtApp()
 const { t } = useI18n()
 
 const { openedProject } = storeToRefs(useBases())
+const { loadTables } = useBase()
 
 const open = ref(false)
 const step = ref<0 | 1 | 2>(0)
@@ -131,7 +132,10 @@ const createSync = async () => {
     message.success(t('labels.createSyncTable'))
     open.value = false
     // the mirror table exists immediately (created before the copy job runs)
-    useBases().loadTables()
+    // [CE-EE] F09 R6(lane1/3/4): loadTables lives on the useBase store —
+    // the earlier useBases().loadTables() threw inside this try block and
+    // the tree never refreshed after creating a sync
+    await loadTables()
   } catch (e: any) {
     message.error(await extractSdkResponseErrorMsg(e))
   } finally {
