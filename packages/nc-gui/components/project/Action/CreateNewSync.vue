@@ -15,7 +15,10 @@ const { $api } = useNuxtApp()
 const { t } = useI18n()
 
 const { openedProject } = storeToRefs(useBases())
-const { loadTables } = useBase()
+// [CE-EE] F09 R7(lane5): alias the store loader — the wizard already has a
+// local loadTables(baseId) for source tables, and a bare destructure would
+// shadow it into a duplicate-identifier compile error
+const { loadTables: refreshBaseTables } = useBase()
 
 const open = ref(false)
 const step = ref<0 | 1 | 2>(0)
@@ -135,7 +138,7 @@ const createSync = async () => {
     // [CE-EE] F09 R6(lane1/3/4): loadTables lives on the useBase store —
     // the earlier useBases().loadTables() threw inside this try block and
     // the tree never refreshed after creating a sync
-    await loadTables()
+    await refreshBaseTables()
   } catch (e: any) {
     message.error(await extractSdkResponseErrorMsg(e))
   } finally {
