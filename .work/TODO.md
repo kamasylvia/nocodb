@@ -13,7 +13,7 @@
 - [x] F03 Data permissions — **pass（2026-09-16，R4/R5/R6 连续清洁连击 3/3；实现 7b10716231 + 修复链终 51b9637b84）**：TABLE_RECORD_ADD/DELETE/VISIBILITY 全链路 + duplicate/restore 带 grants + 加固批（context.permissions memo 消费，bulk 放大 5x 消除）
 - [ ] F06 Docs Permissions — **fork 限制裁剪（2026-09-17 裁定）**：Docs 本体在 CE 零存在（Document.ts 纯 stub、v3 service 孤儿、前端零组件），权限面板无管理对象；DB schema + SDK 类型 + F02/F03 权限框架完整保留，待上游落地或用户指令重启（f06-research.md 三选项）
 - [x] F04 Manage Syncs — **pass（2026-09-17，R3/R4/R5 连续清洁连击 3/3；实现 2fd09efccf + 修复链终 b6c95cb3ac/51b9637b84 hardening）**：legacy SyncSource 管理面板（列表/编辑/删除/重同步 watchdog）+ 双入口解 gate + i18n；App Sync 引擎裁掉待 F09 评估
-- [ ] F09 Sync data — **P1 范围已裁定（Table Sync manual 最小闭环，交付即 pass）；R10 五路在飞（R9 = 清洁轮连击 1/3：4 有效路全 0 error，lane1 E3 缺席；删除流三腿 5e3d736b2a 活体验证成立）**：P2 生命周期/P3 realtime/P4 LTAR 记分阶段 backlog；Custom Sync 裁记 fork 限制（f09-research.md）
+- [ ] F09 Sync data — **P1 范围已裁定（Table Sync manual 最小闭环，交付即 pass）；R11 五路在飞（pass 冲刺轮：R9/R10 连续 0 error 连击 2/3，再清洁即 pass）**：P2 生命周期/P3 realtime/P4 LTAR 记分阶段 backlog；Custom Sync 裁记 fork 限制（f09-research.md）
 
 ## 待人工验证
 
