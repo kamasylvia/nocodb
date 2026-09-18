@@ -132,7 +132,11 @@ const onCreateBaseClick = () => {
           <ProjectActionCreateEmptyDashboard v-if="!isMobileMode && showEEFeatures" />
 
           <ProjectActionCreateNewSync
-            v-if="!isMobileMode && !blockTableSync /* [CE-EE] F09: gate on feature, not paywall visibility */"
+            v-if="
+              !isMobileMode &&
+              !blockTableSync &&
+              isUIAllowed('sourceCreate') /* [CE-EE] F09 P2-R3(lane5): creator-only like the neighbouring cards — editors saw the card and hit an ACL 403 in the wizard */
+            "
             :base-id="base?.id"
           />
 

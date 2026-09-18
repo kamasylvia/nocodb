@@ -94,19 +94,30 @@ export class TableSyncsService {
   ) {}
 
   /** [CE-EE] F09 P2: pull the shared-view uuid out of a pasted URL (or accept
-   *  a bare uuid). NocoDB share URLs end with the uuid segment. */
+   *  a bare uuid). Handles both the path form (…/nc/grid/<uuid>) and the
+   *  legacy hash-route form (…/#/nc/grid/<uuid>) — R3(lane4 M-1). */
   private extractSharedViewUuid(input?: string): string | null {
     if (!input || typeof input !== 'string') return null;
     const trimmed = input.trim();
     if (!trimmed) return null;
-    if (/^[0-9a-f-]{36}$/i.test(trimmed)) return trimmed;
+    const uuidLike = (s?: string) =>
+      s && /^[0-9a-f-]{36}$/i.test(s) ? s : null;
+    if (uuidLike(trimmed)) return trimmed;
     try {
       const url = new URL(trimmed);
-      const last = url.pathname.split('/').filter(Boolean).pop();
-      return last && /^[0-9a-f-]{36}$/i.test(last) ? last : null;
+      // hash-route form: the uuid lives after '#', not in pathname
+      const candidates = [
+        ...url.pathname.split('/').filter(Boolean),
+        ...url.hash.replace(/^#/, '').split('/').filter(Boolean),
+      ];
+      for (const seg of candidates.reverse()) {
+        const hit = uuidLike(seg);
+        if (hit) return hit;
+      }
+      return null;
     } catch {
       const last = trimmed.split('/').filter(Boolean).pop();
-      return last && /^[0-9a-f-]{36}$/i.test(last) ? last : null;
+      return uuidLike(last);
     }
   }
 
@@ -243,6 +254,12 @@ export class TableSyncsService {
           baseId,
           sync.id,
         );
+        // [CE-EE] F09 P2-R3(lane2): never expose the share credential — the
+        // uuid identifies the link and the hash is server-side only
+        for (const m of res.mappings as any[]) {
+          delete m.source_uuid;
+          delete m.source_password_hash;
+        }
         return res;
       }),
     );
@@ -255,6 +272,11 @@ export class TableSyncsService {
     }
     const res = sync.toType();
     res.mappings = await TableSync.listMappings(context, baseId, sync.id);
+    // [CE-EE] F09 P2-R3(lane2): strip the share credential from responses
+    for (const m of res.mappings as any[]) {
+      delete m.source_uuid;
+      delete m.source_password_hash;
+    }
     return res;
   }
 

@@ -156,6 +156,9 @@ export class TableSyncProcessor {
       if (!srcCol || !destCol) continue;
       if (srcCol.uidt === destCol.uidt && srcCol.dt === destCol.dt) continue;
       try {
+        // [CE-EE] F09 P2-R3(lane4 M-2): capture the pre-change type for the
+        // log BEFORE mutation — logging after assignment printed new→new
+        const oldType = destCol.dt || destCol.uidt;
         await this.columnsService.columnUpdate(context, {
           req,
           columnId: destCol.id,
@@ -169,7 +172,7 @@ export class TableSyncProcessor {
         destCol.uidt = srcCol.uidt;
         destCol.dt = srcCol.dt;
         this.logger.log(
-          `Table sync ${sync.id}: propagated column type change ${destCol.title}: ${destCol.uidt} -> ${srcCol.uidt}`,
+          `Table sync ${sync.id}: propagated column type change ${destCol.title}: ${oldType} -> ${srcCol.uidt}`,
         );
       } catch (e) {
         this.logger.warn(
