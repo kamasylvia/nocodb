@@ -23,7 +23,13 @@ const { sync, isUpdating, isLoading, load, syncNow, freeze, resume, remove } =
 const { baseUrl, loadTables } = useBase()
 const { removeMeta } = useMetas()
 const { removeFromRecentViews } = useViewsStore()
-const { baseTables, activeTable, openTable } = useTablesStore()
+// [CE-EE] F09 R8(lane5): state refs must come via storeToRefs — a bare
+// destructure of a pinia setup store unwraps them once at setup time, so
+// activeTable.value was always undefined and both delete-redirect legs
+// were dead code (upstream DlgTableDelete uses storeToRefs too)
+const tablesStore = useTablesStore()
+const { baseTables, activeTable } = storeToRefs(tablesStore)
+const { openTable } = tablesStore
 
 const isDeleteConfirmOpen = ref(false)
 
