@@ -17,7 +17,7 @@
 | 1 | omp | `omp -p --auto-approve "$(cat .work/ee-ce/r<N>-<FF>-lane-prompt.md)"` |
 | 2 | kilo | `kilo run --auto "$(cat …)"` |
 | 3 | reasonix | `reasonix -p --permission-mode bypassPermissions --output-format text "$(cat …)"` |
-| 4 | pi | `(source ~/.zcode/.env; export CLINE_API_KEY="$CLINEPASS_KEY"; pi -p --mode text --no-session "$(cat …)")` |
+| 4 | pi | `(export CLINE_API_KEY="$(python3 -c "import json;print(json.load(open('$HOME/.pi/agent/auth.json'))['clinepass'])")"; pi -p --mode text --no-session "$(cat …)")` |
 | 5 | ZCode subagent | Agent tool（run_in_background，同规格） |
 
 - 全部 Bash run_in_background（ZCode orchestrator 模式）；prompt 文件落盘后 `"$(cat …)"` 注入，禁手写内联转义。

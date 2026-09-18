@@ -2,8 +2,17 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 10:0x（**R7 lane5 抓获 5a11c4ab86 blocker 回归已修 9c4db33fe1**；R7 外部四路 CLI 在飞，UI 段受坏页窗口影响、裁决时按已知事故归因；连击 0/3）
-- LOCK: active（F09 R7 四路 CLI 在飞；巡检 automation 每整点触发）
+- 更新时间: 2026-09-18 10:5x（**R7 5/5 裁决：E-1 重复声明 4/5 路同判（已修 9c4db33fe1）→ error 轮连击 0/3；R8 五路已派（UI 验证专项）**）
+- LOCK: active（F09 R8 五路在飞；巡检 automation 每整点触发）
+
+## F09 R7 裁决 + R8 派遣（2026-09-18 10:5x，5/5 报告）
+
+- verdict：lane1/2/4/5 各 1 error（**同一 E-1**：CreateNewSync.vue L18/L76 `loadTables` 重复声明 → SFC 编译失败 → base 页整页崩；9c4db33fe1 已修，各路修法建议与实际修复一致）；lane3 reasonix 判 PASS = **漏检**（纯静态审未编译 SFC）——单路漏检归因：能力差异，4 路同判已必修，流程不变。**R7 = error 轮，连击 0/3**
+- lane3 报告落盘方式修正：reasonix 沙箱禁写 .work，报告完整输出 stdout，由 orchestrator 从日志捞回落盘（r8 任务书已写明此通道）
+- R7 全部路的 UI 段被坏页窗口（09:29–10:0x）阻塞 → **R8 = UI 验证专项**：附录 A Vite URL 编译健康先行门 + 附录 B 补齐创建流/删除流双腿/菜单新鲜度/可搜索选择器/editor 三入口
+- 外部路运维：pi lane 命令的 `source ~/.zcode/.env` 软链悬空（agents 仓 agents/.env 被删，用户凭证迁移 config.toml 进行中）→ 改从 `~/.pi/agent/auth.json` 取 clinepass 键；REVIEW-SCHEDULE.md lane4 命令同步修正
+- lane1/2/4 质量门 tsc/jest 多路并行超时未完成（后端零改动，无碍）；lane5 jest 15/15 子集 + tsc 0
+- R7 API 面结论：R6-A 六格 + R6-B 四象限 + ACL 十端点 + 引擎 e2e 全过（安全面稳定）
 
 ## F09 R7 进行中（2026-09-18 08:58 派遣，外部阵容首发）
 
