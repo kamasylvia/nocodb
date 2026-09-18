@@ -2,13 +2,24 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 07:xx（**F09 R5 裁决 + 修复 + R6 派遣**：E1 五路同判 fail-open 已修 dd46a3eb1d；minors 批 aabe3587fe；R6 五路 07:0x 派遣，连击 0/3）
+- 更新时间: 2026-09-18 09:0x（**F09 R6 裁决 + 修复 5a11c4ab86 + R7 外部阵容派遣**：09:00 起按固化表切外部 omp/kilo/reasonix/pi + subagent lane5；连击 0/3）
+- LOCK: active（F09 R7 五路在飞；巡检 automation 每整点触发）
+
+## F09 R6 裁决 + 修复 + R7 派遣（2026-09-18 09:0x，5/5 报告）
+
+- verdict：lane5 PASS（0 error）；lane1/2/3/4 各 1 error（全部收敛两处，≥2 路同判必修）→ **R6 = error 轮，连击保持 0/3**
+- **修复批 5a11c4ab86**（前端两文件，jest 41/41 + HMR 干净，后端零改动）：
+  1. 创建流树刷新：`CreateNewSync.vue` 创建路径仍调 `useBases().loadTables()`（R5 批只修了删除路径）——bases store 无此方法，TypeError 在 try 块内被吞，树永不刷新（lane1/3/4 三路复现）→ 改 `useBase()` store `loadTables` 并 await
+  2. 删除流自动跳转：onDelete 在 `loadTables()` **之后**才比 activeTable（被删表已出 store → 恒 undefined → 跳转分支死代码，停死 URL 空白网格；lane1/2/3/4 四路复现）→ 照抄 DlgTableDelete 先捕获 `oldActiveTableId` 再 remove
+- 裁定不修：editor 删镜像行 422 = 上游 ERR_SYNC_TABLE_OPERATION_PROHIBITED 语义（lane1/3）；paused 菜单 Sync now 可点 400 fail-closed（backlog 观察）；深链直开 base 树骨架（框架级）
+- **R7 = 首个外部阵容轮**（09:00 固化表生效）：lane1 omp / lane2 kilo / lane3 reasonix / lane4 pi / lane5 ZCode subagent，prompt `.work/ee-ce/r7-f09-lane-prompt.md`，账号 f09r7lN-*，报告 r7-f09-laneN.md
+- 外部路启动事故记录：omp 首发RegionError 403 → `px --proxy` 单条注入重试 ✓；kilo 首发回落内置 Qwen3-Coder（jd provider 无 key）报 no valid services → kilo.jsonc 补 `"model": "clinepass/cline-pass/mimo-v2.5"` 默认（config 修复非命令行声明）重试 ✓；reasonix -p 模式零字节日志但进程在（输出缓冲）
+- **px 规则落盘（2026-09-18 用户指令）**：`px --up` = `--update + --best + --start` 一条龙（正本 vault `03-Workspace/Global/scripts/px` + `~/.local/bin/px` 软链）；全局 AGENTS.md §6/§10.3/§11 同步修正；巡检 prompt 正本同步。教训：订阅常过期，只 `--start` 会拿旧节点
 - **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（23:55 恢复）**：运行时副本迁移至内置 SSD `~/.nocodb-run`（外置盘冷缓存随机读小时级问题根治），启动脚本 `.work/ee-ce/dev-backend-internal.sh`（已验证 health 200 / API 401 正常 / 启动 ~40s）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**；sqlite3 原生二进制已从 UNITEK 拷入（内盘 node-gyp 链接撞 MacOSX27 SDK）
 - **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main
 - **复审阵容分时（原配置，正本 `.work/ee-ce/REVIEW-SCHEDULE.md`）**：23:00–09:00 = 5 ZCode subagents；09:00–14:00 与 18:00–23:00 = 外部复审（omp/kilo/reasonix/pi 4 CLI + subagent 补位）；14:00–18:00 = 停止
-- LOCK: active（F09 R6 五路在飞；巡检 automation 每整点触发）
 
 ## F09 R5 裁决 + 修复 + R6 派遣（2026-09-18 07:xx，5/5 报告）
 
@@ -17,7 +28,7 @@
 - 验收措辞裁定：editor 三入口可见性 lane4/5 与 lane1 分歧——无泄露通道（createSync 403、allow_sync PATCH 200 与平台 viewUpdate 一致），记 backlog 非 error
 - backlog 增量：resync 不复检 allow_sync/源读权限（P2 设计灰区，与 EE paste 持久凭证语义同构）；引擎 update 分支仅 markDeleted 策略清 RemoteDeleted（lane3b m2）
 - R6 任务书 `.work/ee-ce/r6-f09-lane-prompt.md`（E1 六格矩阵 + R5 四象限重跑 + minors 回归），五路 subagents 07:0x 派遣在飞
-- 环境留痕：kilo R3 僵尸进程（pid 2872，muse 慢跑，报告 02:31 已落盘后未退）按红线不杀仅记录；.reasonix/ CLI 产物目录入 .gitignore
+- 环境留痕：kilo R3 僵尸进程（pid 2872，muse 慢跑，报告 02:31 已落盘后未退）已按用户 07:3x 指令 kill（SIGTERM 即退）；.reasonix/ CLI 产物目录入 .gitignore
 - **F04 PASS（2026-09-18 00:3x，R3/R4/R5 连击 3/3）→ pass = 9/10，剩 F09**
 
 ## F04 PASS（2026-09-18 00:3x，R3/R4/R5 连续清洁，连击 3/3）

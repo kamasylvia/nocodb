@@ -27,7 +27,7 @@
 1. 逐路读报告，裁决：≥2 路同判 error = 必修 + 连击清零；单路属实经实测验证也修（不计连击）；分歧逐项实测；连续 3 轮 0 error → 该功能 pass。
 2. 必修：巡检会话直接修 → `cd packages/nocodb && npx tsc --noEmit` + `pnpm test`（Fork 桶）验证 → commit 到 **main**（勿碰 develop）→ GOAL-STATE/TODO 同步更新。
 3. 派下一轮：prompt 正本先落 `.work/ee-ce/r<N+1>-lane-prompt.md`（基于上轮发现更新「修复回归验证」清单），再按窗口阵容派遣，全部 run_in_background。
-4. 外部 CLI 凭证已配好（clinepass：omp/kilo/reasonix/pi）；muse 走 omp+opencode-go（responses 配方见 GOAL-STATE muse 定案节）。网络 RegionError → `sh ~/Documents/Developments/Scripts/xray.sh --start` 后 `--proxy <cmd>`，用完 `--stop`。
+4. 外部 CLI 凭证已配好（clinepass：omp/kilo/reasonix/pi）；muse 走 omp+opencode-go（responses 配方见 GOAL-STATE muse 定案节）。网络 RegionError → `px --up`（= --update + --best + --start 一条龙）后 `px --proxy <cmd>` 单条注入，用完 `px --stop`。
 
 ## 第 4 步：空闲推进
 
