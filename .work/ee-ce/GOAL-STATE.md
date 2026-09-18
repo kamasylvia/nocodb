@@ -2,8 +2,17 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 10:5x（**R7 5/5 裁决：E-1 重复声明 4/5 路同判（已修 9c4db33fe1）→ error 轮连击 0/3；R8 五路已派（UI 验证专项）**）
-- LOCK: active（F09 R8 五路在飞；巡检 automation 每整点触发）
+- 更新时间: 2026-09-18 12:3x（**R8 5/5 裁决：lane5 活体坐实 storeToRefs 缺失 → 跳转两腿死代码，已修 5e3d736b2a → error 轮连击 0/3；R9 五路已派（删除流回归专项，全路受追踪可通知）**）
+- LOCK: active（F09 R9 五路在飞；巡检 automation 每整点触发）
+
+## F09 R8 裁决 + R9 派遣（2026-09-18 12:3x，5/5 报告）
+
+- verdict：lane1 PASS（0E+1M，UI 全活体）；lane2 PASS（0E+0M，API 面）；lane3 BLOCKED（沙箱禁运行时，静态 0E）；lane4 PASS（0E+1M speculative：rolePermissions 未显式定义，与 R5–R7 creator-200 实测矛盾，记录不修）；**lane5 1 error：SyncMenuOptions 裸解构 useTablesStore 漏 storeToRefs → activeTable.value 恒 undefined → 删除流自动跳转两腿死代码**（活体实测两腿 URL 停死 + 空白网格；判别实验：删普通表走 DlgTableDelete 跳转正常 → 缺陷锁定 F09 文件）。lane1 minor1（0 表 URL 未归根）同根。**R8 = error 轮（我方 R5 批遗留），连击 0/3**
+- **修复 5e3d736b2a**：state 经 storeToRefs 解构、actions 保持裸（对齐上游 DlgTableDelete）；SFC Vite URL 200 + jest 41/41
+- 教训入库（解构/命名类第三例）：R7 loadTables 重声明 → R8 storeToRefs 缺失——**pinia setup store 裸解构 = 解包快照**，state 必 storeToRefs；质量门 vue 运行时面靠 Vite URL 法 + lane UI 活体
+- lane1 方法学注记采入：零关系 dest-qualified 调用者 403（dest ACL 先拦）/ 服务层 404 双 fail-closed 码均 PASS（R9 prompt D 节生效）
+- R9 派遣（12:2x，删除流回归专项）：**全路 Bash run_in_background 受追踪**（修正 R7/R8 的 nohup 违规——全局 AGENTS §11 本有此规，我违了，看门/watcher 为补救非替代）；lane1 omp(px --proxy) / lane2 kilo / lane3 reasonix / lane4 pi(auth.json 键) / lane5 subagent
+- lane3 通道注记：reasonix 沙箱禁写 .work → stdout 报告 orchestrator 捞回落盘（r9 任务书已写明）
 
 ## F09 R7 裁决 + R8 派遣（2026-09-18 10:5x，5/5 报告）
 
