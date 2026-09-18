@@ -2,8 +2,16 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 12:3x（**R8 5/5 裁决：lane5 活体坐实 storeToRefs 缺失 → 跳转两腿死代码，已修 5e3d736b2a → error 轮连击 0/3；R9 五路已派（删除流回归专项，全路受追踪可通知）**）
-- LOCK: active（F09 R9 五路在飞；巡检 automation 每整点触发）
+- 更新时间: 2026-09-18 18:1x（**R9 终裁：4 有效路全 0 error（lane1 E3 缺席）→ 清洁轮连击 1/3；R10 五路已派**）
+- LOCK: active（F09 R10 五路在飞；巡检 automation 每整点触发）
+
+## F09 R9 终裁 + R10 派遣（2026-09-18 18:1x）
+
+- verdict：**0 error 清洁轮 → 连击 1/3**。有效路 4：lane2 kilo PASS（ACL 29/29；2 minor 均测试环境限制非产品缺陷）、lane4 pi PASS（storeToRefs 修复与上游 DlgTableDelete 逐行一致；tsc 0 + jest 41/41）、lane5 subagent PASS（**删除流三腿活体 + 判别对照全过**，5e3d736b2a 验证成立；截图齐全）、lane3 reasonix BLOCKED-static PASS（沙箱禁运行时）。lane1 omp **E3 缺席**：首发 + 重试均「OpenAI responses stream timed out waiting for first event」×10 重试——网关侧问题（omp + px --proxy 配方与历轮成功时一致，非本地配置）
+- **R9 重点确认**：storeToRefs 修复（5e3d736b2a）三腿活体验证成立——删除流自动跳转全通
+- lane5 方法学注记入库：①引擎段假阳性系 v2 records 路由 body 式 PATCH/DELETE 误用②矩阵账号须 dest-creator 提权且角色变更须经 API PATCH 失效缓存（SQL 直改不失效）③UI/API 测试账号必须分离（token_version 互踢）
+- **运维事故（18:00）**：双服务宕机（backend/frontend 000）→ 自愈中发现 `~/.zcode/.env` 软链悬空（agents 仓 agents/.env 被删且删除未提交）致 dev-backend-internal.sh 断链；已 `git checkout -- agents/.env` 恢复 HEAD 版（凭据 = Infisical 身份 + DEVOPS/FINANCE project id），并从 `~/.agents/config.toml` 注入缺失的 `INFISICAL_PROJECT_ID_KDL` 后拉起成功。**待用户定夺**：agents/.env 删除是否迁移动作——若确认删除需同步改 dev-backend-internal.sh 的取数路径（config.toml [infisical] 段），否则保持 .env。backend pid 4342 / frontend Nuxt 新起
+- R10 派遣（18:1x，外部阵容 18–23 窗）：lane1 omp（muse 网关若再现流超时 → E3，4 有效路继续）/ lane2 kilo / lane3 reasonix / lane4 pi(auth.json 键) / lane5 subagent，全受追踪
 
 ## F09 R8 裁决 + R9 派遣（2026-09-18 12:3x，5/5 报告）
 
