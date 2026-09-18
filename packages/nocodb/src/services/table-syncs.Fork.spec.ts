@@ -54,7 +54,12 @@ jest.mock('~/models/Model', () => ({
 }));
 jest.mock('~/models/View', () => ({
   __esModule: true,
-  default: { list: jest.fn().mockResolvedValue([]) },
+  default: {
+    list: jest.fn().mockResolvedValue([]),
+    // [CE-EE] F09 P2: resync re-validates the source view (allow_sync on)
+    get: jest.fn().mockResolvedValue({ allow_sync: true, id: 'view1' }),
+    getByUUID: jest.fn(),
+  },
 }));
 jest.mock('~/models/Source', () => ({
   __esModule: true,
@@ -146,7 +151,7 @@ describe('[CE-EE] F09 mirrorable column filter', () => {
 describe('[CE-EE] F09 service state machine', () => {
   const jobsService = { add: jest.fn().mockResolvedValue({ id: 'job-1' }) };
   const tablesService = {} as any;
-  const service = new TableSyncsService(tablesService, jobsService as any);
+  const service = new TableSyncsService(tablesService, { columnAdd: jest.fn(), columnDelete: jest.fn(), columnUpdate: jest.fn() } as any, jobsService as any);
 
   it('resync enqueues a TableSyncRun job and flips the row to syncing', async () => {
     (TableSync.get as any).mockResolvedValue(syncRow());
@@ -154,6 +159,19 @@ describe('[CE-EE] F09 service state machine', () => {
       ...syncRow(),
       ...patch,
     }));
+    // [CE-EE] F09 P2: resync re-validates the source (mapping + allow_sync +
+    // browse-mode base access)
+    (TableSync.listMappings as any).mockResolvedValue([
+      {
+        role: 'main',
+        source_workspace_id: 'w1',
+        source_base_id: 'src1',
+        source_table_id: 'srctbl',
+        source_view_id: 'view1',
+        dest_table_id: 'mirror1',
+      },
+    ]);
+    baseUserGet.mockResolvedValue({ roles: 'editor' });
 
     await service.resync(ctx, 'dest1', 'sync1', req);
 
@@ -223,11 +241,11 @@ describe('[CE-EE] F09 service state machine', () => {
     );
   });
 
-  it('updateSync rejects selected_fields mutation (P2 scope)', async () => {
+  it('updateSync rejects an empty selected_fields array (P2: empty mirrors are invalid)', async () => {
     (TableSync.get as any).mockResolvedValue(syncRow());
     await expect(
-      service.updateSync(ctx, 'dest1', 'sync1', { selected_fields: ['A'] }, req),
-    ).rejects.toThrow(/not supported/i);
+      service.updateSync(ctx, 'dest1', 'sync1', { selected_fields: [] }, req),
+    ).rejects.toThrow(/non-empty array or null/i);
   });
 
   it('sourceSchema requires read access on the source base', async () => {
@@ -398,7 +416,7 @@ describe('[CE-EE] F09 engine job (full copy)', () => {
 
   it('rejects realtime trigger at the API boundary (auto sync stays paywalled)', async () => {
     const jobsService = { add: jest.fn() };
-    const service = new TableSyncsService({} as any, jobsService as any);
+    const service = new TableSyncsService({} as any, {} as any, jobsService as any);
     baseUserGet.mockResolvedValue({ roles: 'owner' });
     await expect(
       service.createSync(

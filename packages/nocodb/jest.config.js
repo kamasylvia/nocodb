@@ -12,6 +12,12 @@ module.exports = {
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
   moduleNameMapper: {
+    // [CE-EE] F09 P2: nanoid v5 is ESM-only — ts-jest (isolatedModules) can't
+    // parse it when a spec's import chain reaches columns.service; serve a
+    // deterministic CJS stub instead
+    '^nanoid$': '<rootDir>/__mocks__/nanoid.js',
+    '^request-filtering-agent$': '<rootDir>/__mocks__/request-filtering-agent.js',
+    '^@noco-local-integrations/core$': '<rootDir>/__mocks__/noco-local-integrations-core.js',
     '^src/(.*)$': [
       '<rootDir>/$1',
       // '<rootDir>/$1/index'

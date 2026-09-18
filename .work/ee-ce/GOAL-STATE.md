@@ -2,8 +2,9 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-18 20:5x（**F09 P1 PASS**：R9/R10/R11 连续清洁连击 3/3；功能 9/10，剩 F06 fork 限制裁剪）
-- **复审阵容临时覆盖（2026-09-15 用户指令）**：在用户重新配置前**一律 5 路 ZCode subagents**，不分时段（外部 CLI 路首秀均异常：kilo 落无 key provider、pi 不读 auth.json 键、reasonix 空日志亡、omp 自愈触发 kill 战争）；原分时表保留在 REVIEW-SCHEDULE.md 待恢复
+- 更新时间: 2026-09-18 21:1x（**用户定夺：F06=C 维持裁剪；F09 P2+P3+P4 全做**——LOCK active，F09 P2 实现开工）
+- LOCK: active（F09 P2 实现中；每阶段独立会审 3 连击）
+- **用户裁定（2026-09-18 21:0x）**：①F06 维持选项 C（不重启，fork 限制记档）②F09 P2（生命周期）+P3（incremental/realtime+AUTO 解锁）+P4（LTAR 三层）全做，顺序 P2→P3→P4，每阶段独立过会审闭环；Custom Sync 维持裁剪
 - **R4 首派事故记录（外部阵容，已废弃）**：lane1 omp 曾 kill 后端并裸跑 dist/main.js 触发多路 kill 战争 → 后端长时间宕机；重派时各路已加「禁自愈、轮询 8080」附录。**教训：CLI 路任务书必须显式禁止进程操作与 dev-backend.sh**
 - **后端状态（18:00 自愈后）**：运行时副本在内置 SSD `~/.nocodb-run`（pid 4342，health 200）；启动脚本 `.work/ee-ce/dev-backend-internal.sh`（现依赖 ~/.zcode/.env 软链 + ~/.agents/config.toml 的 INFISICAL_PROJECT_ID_KDL 注入）；**热修流程：UNITEK 提交 → rsync 源码+dist 到 ~/.nocodb-run → 脚本 stop+start**
 - **分支布局（2026-09-16 用户指令重申）**：fork 工作只落 **main**（已推 origin，含 .work 进度态）；**develop 与上游完全同步**（=upstream/develop=a004f4a5da，已推 origin 镜像；track upstream；勿在 develop 提交）——另一台机器续作：clone 后切 main

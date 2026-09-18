@@ -38,6 +38,11 @@ const schema = ref<{
 const selectedBaseId = ref<string>()
 const selectedTableId = ref<string>()
 
+// [CE-EE] F09 P2: paste mode state (shared view url + optional password)
+const sourceMode = ref<'browse' | 'paste'>('browse')
+const sharedViewUrl = ref<string>()
+const sharedViewPassword = ref<string>()
+
 // [CE-EE] F09 R5(lane1/4/5): NcSelect 只认 show-search + filter-option，
 // 按选项 label（base/table 标题）过滤
 const filterSelectOption = (input: string, option: any) => {
@@ -97,10 +102,17 @@ const loadSchema = async () => {
   try {
     const res = await $api.instance.post(
       `/api/v2/meta/bases/${destBaseId.value}/table-syncs/source-schema`,
-      {
-        sourceBaseId: selectedBaseId.value,
-        sourceTableId: selectedTableId.value,
-      },
+      // [CE-EE] F09 P2: paste mode previews by shared view url (+ password),
+      // browse mode by base/table ids
+      sourceMode.value === 'paste'
+        ? {
+            sharedViewUrl: sharedViewUrl.value,
+            sharedViewPassword: sharedViewPassword.value,
+          }
+        : {
+            sourceBaseId: selectedBaseId.value,
+            sourceTableId: selectedTableId.value,
+          },
     )
     schema.value = res.data
     if (schema.value?.view) {
@@ -124,9 +136,19 @@ const createSync = async () => {
       `/api/v2/meta/bases/${destBaseId.value}/table-syncs`,
       {
         title: syncTitle.value,
-        sourceBaseId: selectedBaseId.value,
-        sourceTableId: selectedTableId.value,
-        sourceViewId: selectedViewId.value,
+        // [CE-EE] F09 P2: paste mode sends the share credential; browse mode
+        // keeps the direct source ids
+        ...(sourceMode.value === 'paste'
+          ? {
+              sourceInputMode: 'paste',
+              sharedViewUrl: sharedViewUrl.value,
+              sharedViewPassword: sharedViewPassword.value,
+            }
+          : {
+              sourceBaseId: selectedBaseId.value,
+              sourceTableId: selectedTableId.value,
+              sourceViewId: selectedViewId.value,
+            }),
         selectedFields: fieldMode.value === 'all' ? null : selectedFields.value,
         onDeleteAction: deleteAction.value,
         syncTrigger: 'manual',
@@ -146,6 +168,38 @@ const createSync = async () => {
   }
 }
 
+// [CE-EE] F09 P2: paste mode — resolve the shared view, then reuse the
+// browse flow with the resolved ids
+const resolvePasteLink = async () => {
+  isLoading.value = true
+  try {
+    const res = await $api.instance.post(
+      `/api/v2/meta/bases/${destBaseId.value}/table-syncs/resolve-link`,
+      {
+        sharedViewUrl: sharedViewUrl.value,
+        sharedViewPassword: sharedViewPassword.value,
+      },
+    )
+    selectedBaseId.value = res.data.sourceBaseId
+    selectedTableId.value = res.data.sourceTableId
+    selectedViewId.value = res.data.sourceViewId
+    await loadSchema()
+    step.value = 1
+  } catch (e: any) {
+    message.error(await extractSdkResponseErrorMsg(e))
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const nextFromStep0 = async () => {
+  if (sourceMode.value === 'paste') {
+    await resolvePasteLink()
+  } else {
+    step.value = 1
+  }
+}
+
 const openWizard = () => {
   step.value = 0
   bases.value = []
@@ -154,6 +208,8 @@ const openWizard = () => {
   selectedBaseId.value = undefined
   selectedTableId.value = undefined
   selectedViewId.value = undefined
+  sharedViewUrl.value = undefined
+  sharedViewPassword.value = undefined
   open.value = true
   loadBases()
 }
@@ -194,6 +250,31 @@ watch(selectedTableId, (id) => {
 
       <!-- Step 0: source base + table -->
       <div v-if="step === 0" class="flex flex-col gap-4">
+        <!-- [CE-EE] F09 P2: source mode picker — browse (own bases) or paste
+             (shared view url from another base) -->
+        <a-radio-group v-model:value="sourceMode" class="flex gap-4">
+          <a-radio value="browse">{{ $t('labels.sourceModeBrowse') }}</a-radio>
+          <a-radio value="paste">{{ $t('labels.sourceModePasteLink') }}</a-radio>
+        </a-radio-group>
+        <template v-if="sourceMode === 'paste'">
+          <div>
+            <div class="mb-1 font-medium">{{ $t('labels.sharedViewLink') }}</div>
+            <a-input
+              v-model:value="sharedViewUrl"
+              :placeholder="$t('labels.sourceModePasteLinkDesc')"
+              data-testid="table-sync-shared-view-url"
+            />
+          </div>
+          <div v-if="sharedViewUrl">
+            <div class="mb-1 font-medium">{{ $t('labels.password') }}</div>
+            <a-input-password
+              v-model:value="sharedViewPassword"
+              :placeholder="$t('optional')"
+              data-testid="table-sync-shared-view-password"
+            />
+          </div>
+        </template>
+        <template v-else>
         <div>
           <div class="mb-1 font-medium">{{ $t('labels.sourceModeBrowse') }}</div>
           <div class="mb-2 text-xs text-nc-content-gray-subtle2">
@@ -226,6 +307,7 @@ watch(selectedTableId, (id) => {
         <div v-if="selectedTableId && schema && !schema.view" class="text-xs text-nc-content-orange-dark">
           {{ $t('tooltip.allowSyncDescription') }}
         </div>
+        </template>
       </div>
 
       <!-- Step 1: view + fields -->
@@ -305,9 +387,16 @@ watch(selectedTableId, (id) => {
         <NcButton
           v-if="step < 2"
           type="primary"
-          :disabled="step === 0 ? !selectedTableId || !schema?.view : false"
+          :loading="step === 0 && isLoading"
+          :disabled="
+            step === 0
+              ? sourceMode === 'paste'
+                ? !sharedViewUrl
+                : !selectedTableId || !schema?.view
+              : false
+          "
           data-testid="table-sync-next"
-          @click="step = (step + 1) as 1 | 2"
+          @click="step === 0 ? nextFromStep0() : (step = 2)"
         >
           {{ $t('general.next') }}
         </NcButton>

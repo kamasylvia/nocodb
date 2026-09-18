@@ -9,6 +9,7 @@ import TableSync from '~/models/TableSync';
 import NcConnectionMgrv2 from '~/utils/common/NcConnectionMgrv2';
 import type { BaseModelSqlv2 } from '~/db/BaseModelSqlv2';
 import type { Column } from '~/models';
+import { ColumnsService } from '~/services/columns.service';
 
 // [CE-EE] F09: Table Sync engine. One job run applies a full copy of the
 // source table onto the mirror table:
@@ -36,6 +37,11 @@ function normalizeListResult(result: any): Record<string, any>[] {
 @Injectable()
 export class TableSyncProcessor {
   private logger = new Logger(TableSyncProcessor.name);
+
+  // [CE-EE] F09 P2: sanctioned synced-column authority path — source type
+  // drift is propagated through columnUpdate with bypassSyncedFieldGuard
+  // (the engine is the authority per columns.service's own comment)
+  constructor(private readonly columnsService: ColumnsService) {}
 
   async job(job: Job) {
     // [CE-EE] F09: mode is informational in P1 — both full-create and
@@ -134,10 +140,43 @@ export class TableSyncProcessor {
     );
     const fieldMap = columnMappings
       .map(({ source_column_id, dest_column_id }) => ({
+        srcId: source_column_id,
+        destId: dest_column_id,
         srcTitle: srcColById.get(source_column_id)?.title,
         destTitle: destColById.get(dest_column_id)?.title,
       }))
       .filter((m) => !!m.srcTitle && !!m.destTitle);
+
+    // [CE-EE] F09 P2: source column type drift propagation — when the source
+    // column's type changed since mapping, carry the change onto the mirror
+    // column through the bypass guard, then refresh the dest model meta
+    for (const m of fieldMap) {
+      const srcCol = srcColById.get(m.srcId);
+      const destCol = destColById.get(m.destId);
+      if (!srcCol || !destCol) continue;
+      if (srcCol.uidt === destCol.uidt && srcCol.dt === destCol.dt) continue;
+      try {
+        await this.columnsService.columnUpdate(context, {
+          req,
+          columnId: destCol.id,
+          user: req?.user as any,
+          bypassSyncedFieldGuard: true,
+          column: {
+            uidt: srcCol.uidt,
+            dt: srcCol.dt,
+          } as any,
+        });
+        destCol.uidt = srcCol.uidt;
+        destCol.dt = srcCol.dt;
+        this.logger.log(
+          `Table sync ${sync.id}: propagated column type change ${destCol.title}: ${destCol.uidt} -> ${srcCol.uidt}`,
+        );
+      } catch (e) {
+        this.logger.warn(
+          `Table sync ${sync.id}: column type propagation failed for ${destCol.title}: ${e?.message}`,
+        );
+      }
+    }
 
     const remoteIdCol = destModel.columns.find((c) => c.title === 'RemoteId');
     const remoteDeletedCol = destModel.columns.find(

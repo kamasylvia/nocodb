@@ -76,7 +76,16 @@ export function useTableSync(baseId: string, tableId: string) {
       ),
     )
 
+  // [CE-EE] F09 P2: convert the mirror into a regular editable table —
+  // removes the sync, keeps the table and its rows
+  const detach = () =>
+    withUpdate(() =>
+      $api.instance.post(
+        `/api/v2/meta/bases/${baseId}/table-syncs/${sync.value?.id}/detach`,
+      ),
+    )
+
   onMounted(load)
 
-  return { sync, isLoading, isUpdating, load, syncNow, freeze, resume, remove }
+  return { sync, isLoading, isUpdating, load, syncNow, freeze, resume, remove, detach }
 }

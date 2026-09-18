@@ -28,6 +28,8 @@ import TableSync from '~/models/TableSync';
 import { NcError } from '~/helpers/catchError';
 import { generateUniqueName } from '~/helpers/exportImportHelpers';
 import { TablesService } from '~/services/tables.service';
+import { ColumnsService } from '~/services/columns.service';
+import bcrypt from 'bcryptjs';
 import { CacheDelDirection, CacheScope, MetaTable } from '~/utils/globals';
 import Noco from '~/Noco';
 
@@ -35,8 +37,10 @@ import Noco from '~/Noco';
 // mirrors one source table (browse mode: a table in another base the creator
 // can read, whose grid view has allow_sync on) into a read-only `synced`
 // destination table. P1 covers full-copy + manual resync + freeze/resume +
-// delete; realtime/incremental (FEATURE_TABLE_SYNC_AUTO) and paste mode /
-// detach stay out of scope for this phase.
+// delete. P2 adds: paste mode (shared-view uuid + password), field-selection
+// change propagation, source column type propagation, detach (convert to
+// regular table), create-time atomicity cleanup, and resync-time source
+// re-validation. Realtime/incremental (FEATURE_TABLE_SYNC_AUTO) stay P3.
 
 /** [CE-EE] F09: engine-managed system columns on every mirror table. Titles
  *  come from the SDK's SYNC_SYSTEM_COLUMN_TITLES set (hidden in UI via
@@ -85,8 +89,26 @@ export function isMirrorableSourceColumn(col: {
 export class TableSyncsService {
   constructor(
     protected readonly tablesService: TablesService,
+    protected readonly columnsService: ColumnsService,
     @Inject('JobsService') protected readonly jobsService: IJobsService,
   ) {}
+
+  /** [CE-EE] F09 P2: pull the shared-view uuid out of a pasted URL (or accept
+   *  a bare uuid). NocoDB share URLs end with the uuid segment. */
+  private extractSharedViewUuid(input?: string): string | null {
+    if (!input || typeof input !== 'string') return null;
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    if (/^[0-9a-f-]{36}$/i.test(trimmed)) return trimmed;
+    try {
+      const url = new URL(trimmed);
+      const last = url.pathname.split('/').filter(Boolean).pop();
+      return last && /^[0-9a-f-]{36}$/i.test(last) ? last : null;
+    } catch {
+      const last = trimmed.split('/').filter(Boolean).pop();
+      return last && /^[0-9a-f-]{36}$/i.test(last) ? last : null;
+    }
+  }
 
   private async assertSourceReadAccess(
     sourceContext: NcContext,
@@ -245,10 +267,60 @@ export class TableSyncsService {
       sourceBaseId?: string;
       sourceTableId?: string;
       sourceViewId?: string;
+      sharedViewUrl?: string;
+      sharedViewPassword?: string;
     },
     req: NcRequest,
   ) {
     const { sourceBaseId, sourceTableId, sourceViewId } = body || {};
+
+    // [CE-EE] F09 P2: paste-mode schema preview — resolve the shared view by
+    // uuid (+ optional password), no base-membership requirement
+    if (!sourceBaseId && (body?.sharedViewUrl || (body as any)?.sourceViewUuid)) {
+      const uuid = this.extractSharedViewUuid(
+        body.sharedViewUrl || (body as any).sourceViewUuid,
+      );
+      if (!uuid) NcError.badRequest('A valid shared view URL or uuid is required');
+      const view = await View.getByUUID(context, uuid);
+      if (!view) NcError.badRequest('Shared view not found');
+      if (!(view as any).allow_sync) {
+        NcError.badRequest('Sync is not allowed on the shared view');
+      }
+      if (view.password) {
+        if (!body.sharedViewPassword) {
+          // authenticated shape: tell the caller a password is required
+          return { passwordProtected: true };
+        }
+        const ok = await bcrypt.compare(body.sharedViewPassword, view.password);
+        if (!ok) NcError.badRequest('Invalid shared view password');
+      }
+      const srcContext: NcContext = {
+        workspace_id: (view as any).fk_workspace_id || context.workspace_id,
+        base_id: (view as any).base_id,
+      };
+      const srcModel = await Model.get(srcContext, (view as any).fk_model_id);
+      if (!srcModel) NcError.badRequest('Shared view not found');
+      await srcModel.getColumns(srcContext);
+      const mirrorable = this.getMirrorableColumns(srcModel);
+      return {
+        sourceInputMode: TableSyncInputMode.Paste,
+        sourceBase: { id: (view as any).base_id, title: (view as any).base_id },
+        sourceTable: { id: srcModel.id, title: srcModel.title },
+        view: {
+          id: (view as any).id,
+          title: (view as any).title,
+          allow_sync: true,
+          uuid,
+        },
+        views: [],
+        columns: mirrorable.map((c) => ({
+          id: c.id,
+          title: c.title,
+          uidt: c.uidt,
+        })),
+      };
+    }
+
     if (!sourceBaseId || !sourceTableId) {
       NcError.badRequest('sourceBaseId and sourceTableId are required');
     }
@@ -299,6 +371,9 @@ export class TableSyncsService {
       selectedFields?: string[] | null;
       onDeleteAction?: string;
       syncTrigger?: string;
+      sourceInputMode?: string;
+      sharedViewUrl?: string;
+      sharedViewPassword?: string;
     },
     req: NcRequest,
   ) {
@@ -310,12 +385,20 @@ export class TableSyncsService {
       selectedFields,
       onDeleteAction,
       syncTrigger,
+      sourceInputMode,
+      sharedViewUrl,
+      sharedViewPassword,
     } = body || {};
 
-    if (!sourceBaseId || !sourceTableId) {
+    // [CE-EE] F09 P2: paste mode resolves a shared view by uuid (+ optional
+    // password) instead of by base access — EE semantics: the share link IS
+    // the persistent credential, stored hashed on the mapping
+    const isPaste = sourceInputMode === TableSyncInputMode.Paste;
+
+    if (!isPaste && (!sourceBaseId || !sourceTableId)) {
       NcError.badRequest('sourceBaseId and sourceTableId are required');
     }
-    if (sourceBaseId === baseId) {
+    if (!isPaste && sourceBaseId === baseId) {
       NcError.badRequest('Source base must be a different base');
     }
 
@@ -355,18 +438,64 @@ export class TableSyncsService {
       ],
     );
 
-    const { sourceContext, sourceModel } = await this.loadSource(
-      context,
-      sourceBaseId,
-      sourceTableId,
-      req.user.id,
-    );
+    // [CE-EE] F09 P2(lane obs): paste mode resolves the shared view by uuid
+    // (allow_sync + optional bcrypt password required); browse mode keeps the
+    // direct source-access check. Both funnel into the same
+    // {sourceContext, sourceModel, sourceView} triple below.
+    let pasteUuid: string | null = null;
+    let pastePasswordHash: string | null = null;
+    let sourceContext: NcContext;
+    let sourceModel: Model;
+    let sourceView: View;
 
-    const sourceView = await this.resolveSourceView(
-      sourceContext,
-      sourceModel,
-      sourceViewId,
-    );
+    if (isPaste) {
+      const uuid = this.extractSharedViewUuid(sharedViewUrl);
+      if (!uuid) {
+        NcError.badRequest('A valid shared view URL or uuid is required');
+      }
+      const view = await View.getByUUID(context, uuid);
+      if (!view || (sourceTableId && view.fk_model_id !== sourceTableId)) {
+        NcError.badRequest('Shared view not found');
+      }
+      const srcModel = await Model.get(
+        { ...context, base_id: (view as any).base_id || context.base_id },
+        sourceTableId,
+      );
+      if (!srcModel) NcError.badRequest('Shared view not found');
+      await srcModel.getColumns(context);
+      if (!(view as any).allow_sync) {
+        NcError.badRequest('Sync is not allowed on the shared view');
+      }
+      if (view.password) {
+        if (!sharedViewPassword) {
+          NcError.badRequest('This shared view is password protected');
+        }
+        const ok = await bcrypt.compare(sharedViewPassword, view.password);
+        if (!ok) NcError.badRequest('Invalid shared view password');
+        pastePasswordHash = view.password;
+      }
+      pasteUuid = uuid;
+      sourceContext = {
+        workspace_id: (view as any).fk_workspace_id || context.workspace_id,
+        base_id: (view as any).base_id,
+      };
+      sourceModel = srcModel;
+      sourceView = view as View;
+    } else {
+      const loaded = await this.loadSource(
+        context,
+        sourceBaseId,
+        sourceTableId,
+        req.user.id,
+      );
+      sourceContext = loaded.sourceContext;
+      sourceModel = loaded.sourceModel;
+      sourceView = await this.resolveSourceView(
+        sourceContext,
+        sourceModel,
+        sourceViewId,
+      );
+    }
 
     const mirrorable = this.getMirrorableColumns(sourceModel);
     if (!mirrorable.length) {
@@ -385,6 +514,13 @@ export class TableSyncsService {
     // title. Virtual/LTAR picks are rejected — LTAR mirroring is P4 scope.
     let selectedFieldsFinal: string[] | null = null;
     if (Array.isArray(selectedFields)) {
+      // [CE-EE] F09 P2(lane obs): an empty array produced a zero-column
+      // mirror — reject it explicitly
+      if (!selectedFields.length) {
+        NcError.badRequest(
+          'selectedFields must not be empty — omit it to sync all fields',
+        );
+      }
       const available = new Set(mirrorable.map((c) => c.title));
       const unknown = selectedFields.filter((t) => !available.has(t));
       if (unknown.length) {
@@ -462,117 +598,139 @@ export class TableSyncsService {
       } as any,
     })) as Model;
 
-    await mirrorModel.getColumns(context);
+    // [CE-EE] F09 P2(lane obs): creation is not atomic — a failure after the
+    // mirror table exists (mapping insert, GVC patch, job enqueue) used to
+    // strand an orphan synced table. Best-effort cleanup keeps the base clean.
+    try {
+      await mirrorModel.getColumns(context);
 
-    // [CE-EE] F09 R1(lane5): hide the engine bookkeeping columns from the
-    // mirror's default grid view (standard view-column show=false — works
-    // regardless of the meta system flag path)
-    const mirrorViews = (await View.list(context, mirrorModel.id)) as any[];
-    const grid = (mirrorViews ?? []).find(
-      (v: any) => v.view_type === ViewTypes.GRID || v.type === ViewTypes.GRID,
-    );
-        if (grid?.id) {
-      const gcRows = (await GridViewColumn.list(context, grid.id)) as any[];
-            // [CE-EE] F09 R1(lane5): GVC rows carry fk_column_id but NO title —
-      // match against the mirror model's system column ids instead
-      const sysColIds = (mirrorModel.columns ?? [])
-        .filter(
-          (c: any) => c.title === 'RemoteId' || c.title === 'RemoteDeleted',
-        )
-        .map((c: any) => c.id);
-      let hidden = 0;
-      for (const gc of gcRows ?? []) {
-        if (sysColIds.includes(gc.fk_column_id)) {
-          await GridViewColumn.update(context, gc.id, { show: false });
-          hidden += 1;
+      // [CE-EE] F09 R1(lane5): hide the engine bookkeeping columns from the
+      // mirror's default grid view (standard view-column show=false — works
+      // regardless of the meta system flag path)
+      const mirrorViews = (await View.list(context, mirrorModel.id)) as any[];
+      const grid = (mirrorViews ?? []).find(
+        (v: any) => v.view_type === ViewTypes.GRID || v.type === ViewTypes.GRID,
+      );
+      if (grid?.id) {
+        const gcRows = (await GridViewColumn.list(context, grid.id)) as any[];
+        // [CE-EE] F09 R1(lane5): GVC rows carry fk_column_id but NO title —
+        // match against the mirror model's system column ids instead
+        const sysColIds = (mirrorModel.columns ?? [])
+          .filter(
+            (c: any) => c.title === 'RemoteId' || c.title === 'RemoteDeleted',
+          )
+          .map((c: any) => c.id);
+        let hidden = 0;
+        for (const gc of gcRows ?? []) {
+          if (sysColIds.includes(gc.fk_column_id)) {
+            await GridViewColumn.update(context, gc.id, { show: false });
+            hidden += 1;
+          }
         }
       }
-          }
 
-    // [CE-EE] F09 R1(lane3/lane4): the generic table-create meta path drops
-    // the custom system flag on appended sync system columns (CreatedAt-style
-    // seeds persist, customer-payload columns do not) — force it post-create
-    // so isHiddenCol hides RemoteId/RemoteDeleted from the grid. Direct meta
-    // list+update (bypasses the model column cache and Column.update's
-    // narrow whitelist, both of which were verified to drop the flag).
-    const mirrorColumnRows = (await Noco.ncMeta.metaList2(
-      context.workspace_id,
-      context.base_id,
-      MetaTable.COLUMNS,
-      { condition: { fk_model_id: mirrorModel.id } },
-    )) as any[];
-    for (const colRow of mirrorColumnRows) {
-      if (
-        (colRow.title === 'RemoteId' || colRow.title === 'RemoteDeleted') &&
-        !colRow.system
-      ) {
-        await Noco.ncMeta.metaUpdate(
-          context.workspace_id,
-          context.base_id,
-          MetaTable.COLUMNS,
-          { system: true },
-          colRow.id,
-        );
+      // [CE-EE] F09 R1(lane3/lane4): the generic table-create meta path drops
+      // the custom system flag on appended sync system columns (CreatedAt-style
+      // seeds persist, customer-payload columns do not) — force it post-create
+      // so isHiddenCol hides RemoteId/RemoteDeleted from the grid. Direct meta
+      // list+update (bypasses the model column cache and Column.update's
+      // narrow whitelist, both of which were verified to drop the flag).
+      const mirrorColumnRows = (await Noco.ncMeta.metaList2(
+        context.workspace_id,
+        context.base_id,
+        MetaTable.COLUMNS,
+        { condition: { fk_model_id: mirrorModel.id } },
+      )) as any[];
+      for (const colRow of mirrorColumnRows) {
+        if (
+          (colRow.title === 'RemoteId' || colRow.title === 'RemoteDeleted') &&
+          !colRow.system
+        ) {
+          await Noco.ncMeta.metaUpdate(
+            context.workspace_id,
+            context.base_id,
+            MetaTable.COLUMNS,
+            { system: true },
+            colRow.id,
+          );
+        }
       }
+      // [CE-EE] F09 R2(lane5): invalidate the list key (PARENT_TO_CHILD) — the
+      // previous model-scoped key never matched the actual cache entries
+      // (COLUMN:<modelId>:list / COLUMN:<colId>) and was a silent no-op
+      await NocoCache.deepDel(
+        context,
+        `${CacheScope.COLUMN}:${mirrorModel.id}:list`,
+        CacheDelDirection.PARENT_TO_CHILD,
+      );
+
+      const sync = await TableSync.insert(context, {
+        base_id: baseId,
+        fk_workspace_id: context.workspace_id,
+        title: mirrorTitle,
+        selected_fields: selectedFieldsFinal,
+        on_delete_action:
+          onDeleteAction || TableSyncOnDeleteAction.Delete,
+        sync_trigger: TableSyncTrigger.Manual,
+        status: TableSyncStatus.Syncing,
+        source_input_mode: isPaste
+          ? TableSyncInputMode.Paste
+          : TableSyncInputMode.Browse,
+        created_by: req.user.id,
+      });
+
+      const mainMapping = await this.insertMainMapping(
+        context,
+        sync,
+        sourceContext,
+        sourceModel,
+        sourceView,
+        mirrorModel,
+        pasteUuid,
+        pastePasswordHash,
+      );
+
+      // column identity: mirror columns were created from the source payloads
+      // above — match by title (reserved-title collision already rejected)
+      const destColByTitle = new Map(
+        mirrorModel.columns.map((c) => [c.title, c]),
+      );
+      await TableSync.insertColumnMappings(
+        context,
+        mirroredSourceCols
+          .map((srcCol) => ({
+            base_id: baseId,
+            fk_workspace_id: context.workspace_id,
+            fk_table_sync_id: sync.id,
+            fk_table_sync_mapping_id: mainMapping.id,
+            source_workspace_id: sourceContext.workspace_id,
+            source_base_id: sourceContext.base_id,
+            source_table_id: sourceModel.id,
+            source_column_id: srcCol.id,
+            dest_base_id: baseId,
+            dest_table_id: mirrorModel.id,
+            dest_column_id: destColByTitle.get(srcCol.title)?.id,
+          }))
+          .filter((r) => !!r.dest_column_id),
+      );
+
+      await this.enqueueSyncJob(context, sync, 'full-create', req);
+
+      return this.getSync(context, baseId, sync.id);
+    } catch (e) {
+      // mirror exists but the sync could not be completed — remove it so the
+      // base is not left with a stranded read-only table
+      try {
+        await this.tablesService.tableDelete(context, {
+          tableId: mirrorModel.id,
+          forceDeleteSyncs: true,
+          req,
+        });
+      } catch {
+        /* best effort — surface the original error either way */
+      }
+      throw e;
     }
-    // [CE-EE] F09 R2(lane5): invalidate the list key (PARENT_TO_CHILD) — the
-    // previous model-scoped key never matched the actual cache entries
-    // (COLUMN:<modelId>:list / COLUMN:<colId>) and was a silent no-op
-    await NocoCache.deepDel(
-      context,
-      `${CacheScope.COLUMN}:${mirrorModel.id}:list`,
-      CacheDelDirection.PARENT_TO_CHILD,
-    );
-
-    const sync = await TableSync.insert(context, {
-      base_id: baseId,
-      fk_workspace_id: context.workspace_id,
-      title: mirrorTitle,
-      selected_fields: selectedFieldsFinal,
-      on_delete_action:
-        onDeleteAction || TableSyncOnDeleteAction.Delete,
-      sync_trigger: TableSyncTrigger.Manual,
-      status: TableSyncStatus.Syncing,
-      source_input_mode: TableSyncInputMode.Browse,
-      created_by: req.user.id,
-    });
-
-    const mainMapping = await this.insertMainMapping(
-      context,
-      sync,
-      sourceContext,
-      sourceModel,
-      sourceView,
-      mirrorModel,
-    );
-
-    // column identity: mirror columns were created from the source payloads
-    // above — match by title (reserved-title collision already rejected)
-    const destColByTitle = new Map(
-      mirrorModel.columns.map((c) => [c.title, c]),
-    );
-    await TableSync.insertColumnMappings(
-      context,
-      mirroredSourceCols
-        .map((srcCol) => ({
-          base_id: baseId,
-          fk_workspace_id: context.workspace_id,
-          fk_table_sync_id: sync.id,
-          fk_table_sync_mapping_id: mainMapping.id,
-          source_workspace_id: sourceContext.workspace_id,
-          source_base_id: sourceBaseId,
-          source_table_id: sourceTableId,
-          source_column_id: srcCol.id,
-          dest_base_id: baseId,
-          dest_table_id: mirrorModel.id,
-          dest_column_id: destColByTitle.get(srcCol.title)?.id,
-        }))
-        .filter((r) => !!r.dest_column_id),
-    );
-
-    await this.enqueueSyncJob(context, sync, 'full-create', req);
-
-    return this.getSync(context, baseId, sync.id);
   }
 
   private async insertMainMapping(
@@ -582,6 +740,8 @@ export class TableSyncsService {
     sourceModel: Model,
     sourceView: View,
     mirrorModel: Model,
+    pasteUuid?: string | null,
+    pastePasswordHash?: string | null,
   ) {
     const mapping = {
       base_id: context.base_id,
@@ -594,6 +754,11 @@ export class TableSyncsService {
       dest_base_id: context.base_id,
       dest_table_id: mirrorModel.id,
       role: TableSyncMappingRole.Main,
+      // [CE-EE] F09 P2: paste mode persists the share-link credential —
+      // uuid + bcrypt hash (never the plaintext password)
+      ...(pasteUuid
+        ? { source_uuid: pasteUuid, source_password_hash: pastePasswordHash }
+        : {}),
     };
     const { id } = await Noco.ncMeta.metaInsert2(
       context.workspace_id,
@@ -650,14 +815,148 @@ export class TableSyncsService {
       NcError.badRequest('Resume the sync before updating its configuration');
     }
 
-    // selected_fields mutation requires column add/drop propagation — P2 scope
+    // [CE-EE] F09 P2: field-selection change propagation — add missing
+    // mirror columns, drop removed ones (with their column mappings), then
+    // persist the new selection. Runs only while active+idle (guards above).
+    let selectedFieldsPatch: string[] | null | undefined;
     if (body?.selected_fields !== undefined) {
-      NcError.badRequest(
-        'Changing the synced field selection is not supported yet',
+      if (
+        body.selected_fields !== null &&
+        (!Array.isArray(body.selected_fields) || !body.selected_fields.length)
+      ) {
+        NcError.badRequest(
+          'selectedFields must be a non-empty array or null (all fields)',
+        );
+      }
+
+      const mappings = await TableSync.listMappings(context, baseId, tableSyncId);
+      const mainMapping = mappings.find(
+        (m) => m.role === TableSyncMappingRole.Main,
       );
+      if (!mainMapping?.dest_table_id) {
+        NcError.badRequest('Main mapping is missing for this table sync');
+      }
+      const sourceContext: NcContext = {
+        workspace_id: mainMapping.source_workspace_id,
+        base_id: mainMapping.source_base_id,
+      };
+      const srcModel = await Model.get(sourceContext, mainMapping.source_table_id);
+      if (!srcModel || srcModel.deleted) {
+        NcError.badRequest(
+          'Source table has been deleted — delete this sync and recreate it',
+        );
+      }
+      await srcModel.getColumns(sourceContext);
+      const destModel = await Model.get(context, mainMapping.dest_table_id);
+      await destModel.getColumns(context);
+
+      const mirrorable = this.getMirrorableColumns(srcModel);
+      let desired: any[];
+      if (body.selected_fields === null) {
+        desired = mirrorable;
+      } else {
+        const available = new Set(mirrorable.map((c) => c.title));
+        const unknown = (body.selected_fields as string[]).filter(
+          (t) => !available.has(t),
+        );
+        if (unknown.length) {
+          NcError.badRequest(
+            `Fields cannot be synced (unsupported or unknown): ${unknown.join(', ')}`,
+          );
+        }
+        desired = mirrorable.filter((c) =>
+          (body.selected_fields as string[]).includes(c.title),
+        );
+      }
+      if (!desired.length) {
+        NcError.badRequest('The selection leaves the mirror table empty');
+      }
+
+      const colMappings = (await TableSync.listColumnMappings(
+        context,
+        baseId,
+        tableSyncId,
+      )) as any[];
+      const srcColById = new Map(
+        srcModel.columns.map((c: any) => [c.id, c]),
+      );
+      const destColById = new Map(destModel.columns.map((c: any) => [c.id, c]));
+      const mappedSrcIds = new Set(colMappings.map((m) => m.source_column_id));
+      const desiredSrcIds = new Set(desired.map((c: any) => c.id));
+
+      // drops: mapped source columns leaving the selection → drop the mirror
+      // column (forceDeleteSystem bypasses the synced-column delete guard —
+      // the sync handler is the authority) + remove the mapping row
+      for (const m of colMappings) {
+        if (desiredSrcIds.has(m.source_column_id)) continue;
+        const destCol = destColById.get(m.dest_column_id);
+        if (destCol) {
+          await this.columnsService.columnDelete(context, {
+            req,
+            columnId: destCol.id,
+            forceDeleteSystem: true,
+            skipTrash: true,
+          });
+        }
+        // remove just this mapping row (deleteColumnMappings clears all)
+        await Noco.ncMeta.knex(MetaTable.TABLE_SYNC_COLUMN_MAPPINGS)
+          .where({ id: m.id })
+          .del();
+      }
+
+      // adds: desired source columns not yet mapped → create the mirror
+      // column (readonly) + insert the mapping row
+      const toAdd = desired.filter((c: any) => !mappedSrcIds.has(c.id));
+      for (const srcCol of toAdd) {
+        const added = await this.columnsService.columnAdd(context, {
+          req,
+          tableId: mainMapping.dest_table_id,
+          user: req.user,
+          column: {
+            title: srcCol.title,
+            column_name: srcCol.column_name || srcCol.title,
+            uidt: srcCol.uidt,
+            dt: srcCol.dt,
+            readonly: true,
+          } as any,
+        });
+        const addedCol: any = Array.isArray(added) ? added[0] : added;
+        // columnAdd drops the readonly flag on the custom payload — force it
+        // via direct meta (same pattern as the R1 system:true patch)
+        if (addedCol?.id && !addedCol.readonly) {
+          await Noco.ncMeta.metaUpdate(
+            context.workspace_id,
+            context.base_id,
+            MetaTable.COLUMNS,
+            { readonly: true },
+            addedCol.id,
+          );
+        }
+        await TableSync.insertColumnMappings(context, [
+          {
+            base_id: baseId,
+            fk_workspace_id: context.workspace_id,
+            fk_table_sync_id: tableSyncId,
+            fk_table_sync_mapping_id: mainMapping.id,
+            source_workspace_id: mainMapping.source_workspace_id,
+            source_base_id: mainMapping.source_base_id,
+            source_table_id: mainMapping.source_table_id,
+            source_column_id: srcCol.id,
+            dest_base_id: baseId,
+            dest_table_id: mainMapping.dest_table_id,
+            dest_column_id: addedCol?.id,
+          } as any,
+        ]);
+      }
+
+      selectedFieldsPatch =
+        body.selected_fields === null ? null : (body.selected_fields as string[]);
     }
 
     const patch: Record<string, any> = { updated_by: req.user.id };
+    if (selectedFieldsPatch !== undefined) {
+      patch.selected_fields = selectedFieldsPatch;
+    }
     if (body?.title !== undefined) {
       if (typeof body.title !== 'string' || !body.title.trim()) {
         NcError.badRequest('Sync title must be a non-empty string');
@@ -727,6 +1026,35 @@ export class TableSyncsService {
     if (sync.status === TableSyncStatus.Paused) {
       NcError.badRequest('Sync is paused. Resume it before syncing');
     }
+
+    // [CE-EE] F09 P2(lane5 O1): re-validate the source before each run —
+    // allow_sync must still be on, and browse-mode callers must still read
+    // the source (paste mode rides its persisted share credential instead)
+    const mappings = await TableSync.listMappings(context, baseId, tableSyncId);
+    const mainMapping = mappings.find(
+      (m) => m.role === TableSyncMappingRole.Main,
+    );
+    if (!mainMapping) {
+      NcError.badRequest('Main mapping is missing for this table sync');
+    }
+    const sourceContext: NcContext = {
+      workspace_id: mainMapping.source_workspace_id,
+      base_id: mainMapping.source_base_id,
+    };
+    const sourceView = await View.get(sourceContext, mainMapping.source_view_id);
+    if (!sourceView || !(sourceView as any).allow_sync) {
+      NcError.badRequest(
+        'Sync is no longer allowed on the source view (allow sync is off)',
+      );
+    }
+    if (sync.source_input_mode !== TableSyncInputMode.Paste) {
+      await this.assertSourceReadAccess(
+        sourceContext,
+        mainMapping.source_base_id,
+        req.user.id,
+      );
+    }
+
     return this.enqueueSyncJob(context, sync, 'full-resync', req);
   }
 
@@ -773,8 +1101,112 @@ export class TableSyncsService {
     return this.getSync(context, baseId, tableSyncId);
   }
 
-  /** Paste-mode link resolution (shared view URL) — P2 scope. */
-  async resolveLink(_context: NcContext, _baseId: string, _body: any) {
-    NcError.notImplemented('tableSyncResolveLink');
+  /** [CE-EE] F09 P2: paste-mode link resolution — parse a shared view URL,
+   *  verify allow_sync (+ optional bcrypt password) and return the source
+   *  coordinates for the wizard's next step. */
+  async resolveLink(context: NcContext, _baseId: string, body: any) {
+    const uuid = this.extractSharedViewUuid(
+      body?.sharedViewUrl || body?.sourceViewUuid,
+    );
+    if (!uuid) {
+      NcError.badRequest('A valid shared view URL or uuid is required');
+    }
+    const view = await View.getByUUID(context, uuid);
+    if (!view) NcError.badRequest('Shared view not found');
+    if (!(view as any).allow_sync) {
+      NcError.badRequest('Sync is not allowed on the shared view');
+    }
+    let passwordProtected = false;
+    if (view.password) {
+      passwordProtected = true;
+      if (body?.sharedViewPassword) {
+        const ok = await bcrypt.compare(
+          body.sharedViewPassword,
+          view.password,
+        );
+        if (!ok) NcError.badRequest('Invalid shared view password');
+        passwordProtected = false;
+      }
+    }
+    const srcModel = await Model.get(
+      {
+        workspace_id: (view as any).fk_workspace_id || context.workspace_id,
+        base_id: (view as any).base_id,
+      },
+      (view as any).fk_model_id,
+    );
+    if (!srcModel) NcError.badRequest('Shared view not found');
+    return {
+      sourceInputMode: TableSyncInputMode.Paste,
+      sourceBaseId: (view as any).base_id,
+      sourceTableId: (view as any).fk_model_id,
+      sourceViewId: (view as any).id,
+      sourceTableTitle: srcModel.title,
+      sourceViewTitle: (view as any).title,
+      passwordProtected,
+    };
+  }
+
+  /** [CE-EE] F09 P2: convert the mirror into a regular editable table —
+   *  synced=false, readonly flags lifted, sync + mappings removed; the
+   *  mirror table and its rows stay. Mirrors the detach SQL of
+   *  nc_202606121400. */
+  async detachSync(
+    context: NcContext,
+    baseId: string,
+    tableSyncId: string,
+    req: NcRequest,
+  ) {
+    const sync = await TableSync.get(context, tableSyncId);
+    if (!sync || sync.base_id !== baseId) {
+      NcError.genericNotFound('TableSync', tableSyncId);
+    }
+    if (sync.status === TableSyncStatus.Syncing) {
+      NcError.badRequest('Cannot detach a sync while it is running');
+    }
+
+    const mappings = await TableSync.listMappings(context, baseId, tableSyncId);
+    const mainMapping = mappings.find(
+      (m) => m.role === TableSyncMappingRole.Main,
+    );
+    if (!mainMapping?.dest_table_id) {
+      NcError.badRequest('Main mapping is missing for this table sync');
+    }
+    const destTableId = mainMapping.dest_table_id;
+
+    // flips nc_models.synced=false — the synced guard chain keys off this
+    await Model.updateSynced(context, destTableId, false);
+
+    // lift the readonly flag on every mirror column (direct meta — same
+    // pattern as the P1 system:true patch; Column.update's whitelist drops
+    // the flag silently)
+    const mirrorColumnRows = (await Noco.ncMeta.metaList2(
+      context.workspace_id,
+      context.base_id,
+      MetaTable.COLUMNS,
+      { condition: { fk_model_id: destTableId } },
+    )) as any[];
+    for (const colRow of mirrorColumnRows) {
+      if (colRow.readonly) {
+        await Noco.ncMeta.metaUpdate(
+          context.workspace_id,
+          context.base_id,
+          MetaTable.COLUMNS,
+          { readonly: false },
+          colRow.id,
+        );
+      }
+    }
+    await NocoCache.deepDel(
+      context,
+      `${CacheScope.COLUMN}:${destTableId}:list`,
+      CacheDelDirection.PARENT_TO_CHILD,
+    );
+
+    // remove the sync + its mappings; the table survives as regular
+    await TableSync.deleteColumnMappings(context, baseId, tableSyncId);
+    await TableSync.delete(context, baseId, tableSyncId);
+
+    return { ok: true, tableId: destTableId };
   }
 }

@@ -17,7 +17,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-const { sync, isUpdating, isLoading, load, syncNow, freeze, resume, remove } =
+const { sync, isUpdating, isLoading, load, syncNow, freeze, resume, remove, detach } =
   useTableSync(props.baseId, props.table.id!)
 
 const { baseUrl, loadTables } = useBase()
@@ -56,6 +56,15 @@ const onSyncNow = async () => {
   // optimistic lock: resync flips the status to syncing server-side
   await syncNow()
   emit('close')
+}
+
+// [CE-EE] F09 P2: convert the mirror into a regular editable table —
+// the sync is removed, the table and rows stay in the tree
+const onDetach = async () => {
+  await detach()
+  emit('close')
+  removeMeta(props.baseId, props.table.id!, true)
+  await loadTables()
 }
 
 const onDelete = async () => {
@@ -146,6 +155,18 @@ const onDelete = async () => {
     </NcMenuItem>
 
     <NcDivider />
+
+    <!-- [CE-EE] F09 P2: convert to regular editable table (sync removed) -->
+    <NcMenuItem
+      data-testid="table-sync-menu-convert"
+      :disabled="isUpdating"
+      @click="onDetach"
+    >
+      <div class="flex gap-2 items-center w-full">
+        <GeneralIcon icon="table" class="opacity-80" />
+        <div class="flex-1">{{ $t('labels.convertToRegularTable') }}</div>
+      </div>
+    </NcMenuItem>
 
     <NcMenuItem
       data-testid="table-sync-menu-delete"

@@ -61,6 +61,8 @@ export class TableSyncsController {
       sourceBaseId?: string;
       sourceTableId?: string;
       sourceViewId?: string;
+      sharedViewUrl?: string;
+      sharedViewPassword?: string;
     },
     @Req() req: NcRequest,
   ) {
@@ -82,6 +84,9 @@ export class TableSyncsController {
       selectedFields?: string[] | null;
       onDeleteAction?: string;
       syncTrigger?: string;
+      sourceInputMode?: string;
+      sharedViewUrl?: string;
+      sharedViewPassword?: string;
     },
     @Req() req: NcRequest,
   ) {
@@ -98,7 +103,7 @@ export class TableSyncsController {
     body: {
       title?: string;
       on_delete_action?: string;
-      selected_fields?: string[];
+      selected_fields?: string[] | null;
     },
     @Req() req: NcRequest,
   ) {
@@ -169,9 +174,29 @@ export class TableSyncsController {
   async resolveLink(
     @TenantContext() context: NcContext,
     @Param('baseId') baseId: string,
-    @Body() body: { link?: string },
+    @Body()
+    body: {
+      sharedViewUrl?: string;
+      sourceViewUuid?: string;
+      sharedViewPassword?: string;
+    },
   ) {
-    // [CE-EE] F09 P2 scope: paste-mode shared-view link resolution
+    // [CE-EE] F09 P2: paste-mode shared-view link resolution
     return this.tableSyncsService.resolveLink(context, baseId, body);
+  }
+
+  // [CE-EE] F09 P2: convert the mirror into a regular editable table —
+  // removes the sync, keeps the table (tableSyncDelete semantics: removing
+  // the sync is the destructive act, not touching the data)
+  @Post(['/api/v2/meta/bases/:baseId/table-syncs/:tableSyncId/detach'])
+  @HttpCode(200)
+  @Acl('tableSyncDelete')
+  async detachSync(
+    @TenantContext() context: NcContext,
+    @Param('baseId') baseId: string,
+    @Param('tableSyncId') tableSyncId: string,
+    @Req() req: NcRequest,
+  ) {
+    return this.tableSyncsService.detachSync(context, baseId, tableSyncId, req);
   }
 }
