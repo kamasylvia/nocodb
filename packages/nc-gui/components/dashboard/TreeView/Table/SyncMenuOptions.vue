@@ -156,8 +156,10 @@ const onDelete = async () => {
 
     <NcDivider />
 
-    <!-- [CE-EE] F09 P2: convert to regular editable table (sync removed) -->
+    <!-- [CE-EE] F09 P2: convert to regular editable table (sync removed);
+         hidden while a run is active (lane5 M3 — backend 400s otherwise) -->
     <NcMenuItem
+      v-if="sync.status !== TableSyncStatus.Syncing"
       data-testid="table-sync-menu-convert"
       :disabled="isUpdating"
       @click="onDetach"
@@ -169,6 +171,7 @@ const onDelete = async () => {
     </NcMenuItem>
 
     <NcMenuItem
+      v-if="sync.status !== TableSyncStatus.Syncing"
       data-testid="table-sync-menu-delete"
       class="!text-nc-content-red-medium"
       :disabled="isUpdating"

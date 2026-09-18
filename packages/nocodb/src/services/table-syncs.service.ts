@@ -454,15 +454,19 @@ export class TableSyncsService {
         NcError.badRequest('A valid shared view URL or uuid is required');
       }
       const view = await View.getByUUID(context, uuid);
-      if (!view || (sourceTableId && view.fk_model_id !== sourceTableId)) {
+      if (!view) {
         NcError.badRequest('Shared view not found');
       }
-      const srcModel = await Model.get(
-        { ...context, base_id: (view as any).base_id || context.base_id },
-        sourceTableId,
-      );
+      // [CE-EE] F09 P2-R1(lane1 E1): every source-model access must use the
+      // SOURCE context — getColumns with the dest context resolved the wrong
+      // cache scope and left mirrorable empty ("no syncable columns")
+      const srcContext: NcContext = {
+        workspace_id: (view as any).fk_workspace_id || context.workspace_id,
+        base_id: (view as any).base_id,
+      };
+      const srcModel = await Model.get(srcContext, (view as any).fk_model_id);
       if (!srcModel) NcError.badRequest('Shared view not found');
-      await srcModel.getColumns(context);
+      await srcModel.getColumns(srcContext);
       if (!(view as any).allow_sync) {
         NcError.badRequest('Sync is not allowed on the shared view');
       }
@@ -475,10 +479,7 @@ export class TableSyncsService {
         pastePasswordHash = view.password;
       }
       pasteUuid = uuid;
-      sourceContext = {
-        workspace_id: (view as any).fk_workspace_id || context.workspace_id,
-        base_id: (view as any).base_id,
-      };
+      sourceContext = srcContext;
       sourceModel = srcModel;
       sourceView = view as View;
     } else {
@@ -898,9 +899,13 @@ export class TableSyncsService {
             skipTrash: true,
           });
         }
-        // remove just this mapping row (deleteColumnMappings clears all)
+        // [CE-EE] F09 P2-R1(lane1 E2): listColumnMappings does not select
+        // the id column — key the delete on (sync, source_column_id) instead
         await Noco.ncMeta.knex(MetaTable.TABLE_SYNC_COLUMN_MAPPINGS)
-          .where({ id: m.id })
+          .where({
+            fk_table_sync_id: tableSyncId,
+            source_column_id: m.source_column_id,
+          })
           .del();
       }
 
@@ -908,7 +913,9 @@ export class TableSyncsService {
       // column (readonly) + insert the mapping row
       const toAdd = desired.filter((c: any) => !mappedSrcIds.has(c.id));
       for (const srcCol of toAdd) {
-        const added = await this.columnsService.columnAdd(context, {
+        // [CE-EE] F09 P2-R1(lane5 E4): columnAdd resolves to the refreshed
+        // Model, not a Column — pull the created column off .columns by title
+        const addedModel: any = await this.columnsService.columnAdd(context, {
           req,
           tableId: mainMapping.dest_table_id,
           user: req.user,
@@ -920,10 +927,17 @@ export class TableSyncsService {
             readonly: true,
           } as any,
         });
-        const addedCol: any = Array.isArray(added) ? added[0] : added;
+        const addedCol: any = (addedModel?.columns ?? []).find(
+          (c: any) => c.title === srcCol.title,
+        );
+        if (!addedCol?.id) {
+          NcError.badRequest(
+            `Failed to create mirror column for "${srcCol.title}"`,
+          );
+        }
         // columnAdd drops the readonly flag on the custom payload — force it
         // via direct meta (same pattern as the R1 system:true patch)
-        if (addedCol?.id && !addedCol.readonly) {
+        if (!addedCol.readonly) {
           await Noco.ncMeta.metaUpdate(
             context.workspace_id,
             context.base_id,
@@ -1119,14 +1133,14 @@ export class TableSyncsService {
     let passwordProtected = false;
     if (view.password) {
       passwordProtected = true;
-      if (body?.sharedViewPassword) {
-        const ok = await bcrypt.compare(
-          body.sharedViewPassword,
-          view.password,
-        );
-        if (!ok) NcError.badRequest('Invalid shared view password');
-        passwordProtected = false;
+      // [CE-EE] F09 P2-R1(lane5 M1): without the password, leak nothing —
+      // only the passwordProtected flag leaves the endpoint
+      if (!body?.sharedViewPassword) {
+        return { passwordProtected: true };
       }
+      const ok = await bcrypt.compare(body.sharedViewPassword, view.password);
+      if (!ok) NcError.badRequest('Invalid shared view password');
+      passwordProtected = false;
     }
     const srcModel = await Model.get(
       {
