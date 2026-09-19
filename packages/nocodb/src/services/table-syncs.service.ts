@@ -1129,7 +1129,10 @@ export class TableSyncsService {
       );
     }
 
-    return this.enqueueSyncJob(context, sync, 'full-resync', req);
+    // [CE-EE] F09 P3-R4(lane3): the queued Bull job embeds the caller's req
+    // (rawHeaders incl. xc-auth JWT) — never echo it over HTTP
+    const job = await this.enqueueSyncJob(context, sync, 'full-resync', req);
+    return { id: job?.id, name: job?.name, status: TableSyncStatus.Syncing };
   }
 
   async freeze(

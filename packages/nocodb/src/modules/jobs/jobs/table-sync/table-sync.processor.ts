@@ -28,8 +28,8 @@ import { enqueueCatchUpIfNeeded } from '~/helpers/table-sync-realtime';
 // P1 scope: full-create (initial) and full-resync ("Sync now"). P3 adds the
 // incremental mode: affectedIdsBySource pulls the touched source rows by pk
 // (missing rows follow on_delete_action); an incremental run with no ids
-// without touched ids falls back to the full pass (upsert + sweep) and skips the
-// disappearance sweep — a partial pull must never sweep unobserved rows.
+// falls back to the full pass (upsert + disappearance sweep) — a full pull
+// observes every row, so the sweep is safe and required there.
 
 const SYNC_PAGE_SIZE = 500;
 
@@ -52,7 +52,7 @@ export class TableSyncProcessor {
   async job(job: Job) {
     // [CE-EE] F09: mode decides the pull shape — full-create/full-resync run
     // the full RemoteId-keyed upsert pass; incremental runs either the
-    // affectedIds-by-pk pass (realtime taps) or the full-pass catch-up (catch-up), skipping the disappearance sweep
+    // affectedIds-by-pk pass (realtime taps) or the full-pass catch-up
     const { syncId, req } = job.data as TableSyncJobData;
 
     // resolve the sync row without a base-bound context — the row itself

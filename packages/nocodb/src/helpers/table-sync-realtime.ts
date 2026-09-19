@@ -100,8 +100,9 @@ async function loadRealtimeTargets(
 
 /** Claim the sync for exactly one queued run (atomic CAS on status) and
  *  enqueue the incremental job. `affectedIds` null = no ids known — the
- *  processor falls back to the RemoteUpdatedAt watermark pull. Returns the
- *  job id, or null when the claim missed (sync already Syncing). */
+ *  processor falls back to the full pass (upsert + disappearance sweep).
+ *  Returns the job id, or null when the claim missed (sync not active —
+ *  the event is marked for catch-up instead). */
 async function claimAndEnqueue(
   target: SyncTarget,
   affectedIds: string[] | null,
