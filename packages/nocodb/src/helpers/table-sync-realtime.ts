@@ -73,9 +73,9 @@ async function loadRealtimeTargets(
   // status filter here — a status='active' pre-filter made Syncing/paused
   // syncs invisible to the tap, so their events were silently dropped at
   // lookup and the CAS-miss → markSkipped → catch-up chain was unreachable.
-  // All statuses flow through; the CAS claims only active runs and every
-  // other status lands in markSkippedDuringSync (resume re-runs the
-  // catch-up). Soft-deleted syncs hard-delete their mappings
+  // All statuses flow through (the CAS claims only active runs; syncing/
+  // paused claim-misses land in markSkippedDuringSync and the catch-up —
+  // a full upsert+sweep pass — reconciles them on the next run/resume). Soft-deleted syncs hard-delete their mappings
   // (TableSync.delete), so no deleted filter is needed. role='main' keeps
   // P4 shadow/junction mappings from double-dispatching.
   return (await Noco.ncMeta

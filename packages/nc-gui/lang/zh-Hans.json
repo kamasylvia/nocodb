@@ -1429,6 +1429,7 @@
     "syncNotYetRun": "尚未同步",
     "editSync": "编辑同步",
     "deleteSync": "删除同步",
+    "convertToRegularTable": "转换为普通表",
     "confirmRemoveSyncedFields": "删除同步的字段？",
     "convertToPlainTables": "转换为普通表",
     "convertToPlainTablesDesc": "保留同步数据但解锁数据表进行编辑。同步配置已删除。",
