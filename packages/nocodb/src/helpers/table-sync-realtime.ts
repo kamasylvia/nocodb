@@ -75,8 +75,15 @@ async function loadRealtimeTargets(
   sourceModelId: string,
 ): Promise<SyncTarget[]> {
   // one round trip: main mappings sourcing this table joined with their
-  // sync row, filtered to realtime + active. Soft-deleted syncs hard-delete
-  // their mappings (TableSync.delete), so no deleted filter is needed.
+  // sync row, filtered to realtime. [CE-EE] F09 P3-R1(lane1/2/4/5): NO
+  // status filter here — a status='active' pre-filter made Syncing/paused
+  // syncs invisible to the tap, so their events were silently dropped at
+  // lookup and the CAS-miss → markSkipped → catch-up chain was unreachable.
+  // All statuses flow through; the CAS claims only active runs and every
+  // other status lands in markSkippedDuringSync (resume re-runs the
+  // catch-up). Soft-deleted syncs hard-delete their mappings
+  // (TableSync.delete), so no deleted filter is needed. role='main' keeps
+  // P4 shadow/junction mappings from double-dispatching.
   return (await Noco.ncMeta
     .knex(MetaTable.TABLE_SYNC_MAPPINGS)
     .join(
@@ -86,8 +93,8 @@ async function loadRealtimeTargets(
     )
     .where({
       [`${MetaTable.TABLE_SYNC_MAPPINGS}.source_table_id`]: sourceModelId,
+      [`${MetaTable.TABLE_SYNC_MAPPINGS}.role`]: 'main',
       [`${MetaTable.TABLE_SYNCS}.sync_trigger`]: TableSyncTrigger.Realtime,
-      [`${MetaTable.TABLE_SYNCS}.status`]: TableSyncStatus.Active,
     })
     .select(
       `${MetaTable.TABLE_SYNCS}.id as sync_id`,

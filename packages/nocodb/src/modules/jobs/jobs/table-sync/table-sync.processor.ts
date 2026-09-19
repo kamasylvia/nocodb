@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bull';
-import { TableSyncStatus, UITypes } from 'nocodb-sdk';
+import { TableSyncStatus } from 'nocodb-sdk';
 import type { NcContext, NcRequest } from '~/interface/config';
 import type { TableSyncJobData } from '~/interface/Jobs';
 import Model from '~/models/Model';
@@ -12,7 +12,7 @@ import type { Column } from '~/models';
 import { ColumnsService } from '~/services/columns.service';
 // [CE-EE] F09 P3: watermark helper + post-run catch-up of realtime events
 // that were skipped while a run was in flight
-import { enqueueCatchUpIfNeeded, watermarkStart } from '~/helpers/table-sync-realtime';
+import { enqueueCatchUpIfNeeded } from '~/helpers/table-sync-realtime';
 
 // [CE-EE] F09: Table Sync engine. One job run applies a full copy of the
 // source table onto the mirror table:
@@ -226,20 +226,14 @@ export class TableSyncProcessor {
     } as const;
 
     // [CE-EE] F09 P3: pull shape — incremental runs with touched row ids pull
-    // those rows by pk; incremental runs without ids pull the RemoteUpdatedAt
-    // watermark (full pull fallback when the source has no LastModifiedTime
-    // column or no watermark yet); everything else stays the full pass
+    // those rows by pk; incremental runs without ids (catch-up) run a full
+    // upsert pass WITHOUT the disappearance sweep; everything else stays the
+    // full pass
     const isIncremental = jobData?.mode === 'incremental';
     const affectedIds =
       isIncremental && jobData?.affectedIdsBySource
         ? (jobData.affectedIdsBySource[mainMapping.source_table_id] ?? [])
         : null;
-    const srcLmtCol = srcModel.columns.find(
-      (c) => c.uidt === UITypes.LastModifiedTime,
-    );
-    const watermark = isIncremental
-      ? watermarkStart(sync.last_synced_at)
-      : '';
 
     // shared: build the mirror payload for one source row
     const buildRowPayload = (row: Record<string, any>) => {
@@ -324,19 +318,20 @@ export class TableSyncProcessor {
           await applyDeletePolicy(String(id));
         }
       }
-    } else if (isIncremental && srcLmtCol && watermark) {
-      // catch-up path: re-pull everything modified since the last completed
-      // run (minus a small overlap window) — disappearance sweep is skipped:
-      // a partial pull must never sweep rows it did not observe
+    } else if (isIncremental) {
+      // [CE-EE] F09 P3-R1(lane4 E2/E3): catch-up = full upsert pass without
+      // the disappearance sweep. The previous RemoteUpdatedAt watermark pull
+      // was doubly broken: the `(col,ge,ISO)` where form is rejected 422 for
+      // LMT system columns, and inserted rows carry a physical NULL
+      // updated_at so a time-based pull can structurally never see them.
+      // The RemoteId-keyed upsert is idempotent, so a full pass is always
+      // correct; skipping the sweep is what keeps a partial catch-up from
+      // deleting rows it did not observe.
       let offset = 0;
       for (;;) {
         const rows = normalizeListResult(
           await srcBaseModel.list(
-            {
-              limit: SYNC_PAGE_SIZE,
-              offset,
-              where: `(${srcLmtCol.title},ge,${watermark})`,
-            } as any,
+            { limit: SYNC_PAGE_SIZE, offset } as any,
             { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
           ),
         );

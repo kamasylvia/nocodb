@@ -33,7 +33,10 @@ import bcrypt from 'bcryptjs';
 import { CacheDelDirection, CacheScope, MetaTable } from '~/utils/globals';
 import Noco from '~/Noco';
 // [CE-EE] F09 P3: realtime dispatch implementation (see notifySourceChange note)
-import { notifySourceChange as notifySourceChangeImpl } from '~/helpers/table-sync-realtime';
+import {
+  enqueueCatchUpIfNeeded,
+  notifySourceChange as notifySourceChangeImpl,
+} from '~/helpers/table-sync-realtime';
 
 // [CE-EE] F09: Table Sync (P1 = manual "NocoDB Sync" minimum loop). The sync
 // mirrors one source table (browse mode: a table in another base the creator
@@ -850,10 +853,18 @@ export class TableSyncsService {
     body: {
       title?: string;
       on_delete_action?: string;
-      selected_fields?: string[];
+      selected_fields?: string[] | null;
+      /** [CE-EE] F09 P2-R3(lane2): camelCase alias — the wizard sends
+       * camelCase; a silent no-op on the snake_case-only reader was a
+       * repeated review finding */
+      selectedFields?: string[] | null;
     },
     req: NcRequest,
   ) {
+    // [CE-EE] F09 P2-R3(lane2): normalize the camelCase alias up front
+    if (body?.selected_fields === undefined && body?.selectedFields !== undefined) {
+      body.selected_fields = body.selectedFields;
+    }
     const sync = await TableSync.get(context, tableSyncId);
     if (!sync || sync.base_id !== baseId) {
       NcError.genericNotFound('TableSync', tableSyncId);
@@ -1161,6 +1172,10 @@ export class TableSyncsService {
       status: TableSyncStatus.Active,
       updated_by: req.user.id,
     });
+    // [CE-EE] F09 P3-R1(lane4): events that landed while paused were marked
+    // skipped — resume re-enqueues one catch-up run so a paused window never
+    // loses changes
+    await enqueueCatchUpIfNeeded(tableSyncId);
     return this.getSync(context, baseId, tableSyncId);
   }
 

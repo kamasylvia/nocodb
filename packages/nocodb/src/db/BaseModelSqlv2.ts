@@ -5690,6 +5690,20 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     data: Record<string, any>[],
     req: NcRequest,
   ): Promise<void> {
+    // [CE-EE] F09 P3-R1(lane1/2/3): bulk multi-row insert is the standard
+    // paste/CSV path — without this tap those rows never reached realtime
+    try {
+      if (data?.length && this.model && !this.model.synced) {
+        tapTableSyncRealtime(
+          this.context,
+          this.model.id,
+          'insert',
+          data.map((d) => this.extractPksValues(d, true)),
+        );
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     await this.handleHooks('after.bulkInsert', null, data, req);
     let parentAuditId;
 
@@ -5887,6 +5901,21 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     req,
     isBulkAllOperation = false,
   ): Promise<void> {
+    // [CE-EE] F09 P3-R1(lane3): restored rows re-enter the mirror — same tap
+    // family as insert (soft-delete restore was silent before)
+    try {
+      const rows = Array.isArray(data) ? data : data ? [data] : [];
+      if (rows.length && this.model && !this.model.synced) {
+        tapTableSyncRealtime(
+          this.context,
+          this.model.id,
+          'insert',
+          rows.map((d) => this.extractPksValues(d, true)),
+        );
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     const isBulk = data?.length > 1;
     // Streamed restore calls afterBulkRestore per chunk. First chunk creates
     // the parent audit; later chunks reuse req.ncParentAuditId so the whole
