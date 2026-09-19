@@ -2,8 +2,16 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-19 10:4x（**F09 P3 实现完成**：incremental/realtime 引擎 + AUTO 解锁 + 向导 Automatically 档 + Convert 瞬空白修复；质量门全过（tsc 0 / jest Fork 44/44 / SFC Vite URL 200 / HMR 无错），待会审闭环；自述 `.work/ee-ce/f09-p3-impl-report.md`）
-- LOCK: active（F09 P3 会审阶段；实现批已提交 main）
+- 更新时间: 2026-09-20 07:1x（**F09 P3 PASS**：R3/R4/R5 连续清洁连击 3/3；仅剩 P4（LTAR 三层）——实现待续作会话）
+- LOCK: active（F09 P4 实现待开工）
+
+## F09 P3 PASS（2026-09-20 07:1x，R3/R4/R5 连续清洁连击 3/3）
+
+- 实现链：f6a9314b5e（P3 主体：realtime 五处 tap + notifySourceChange CAS 分发 + incremental affectedIds/水位双路 + AUTO 解锁 + 向导双档）→ 27efcca491（R1：bulkInsert/bulkRestore tap 补齐 + loadRealtimeTargets 去 status 过滤 + role='main' + 补齐改全量 upsert + resume 补齐触发 + camelCase 别名）→ 5d25acfc51（R2：空 affectedIds incremental 落全量 pass 含消失扫描——消解四路同判的窗口 delete 发散 + Convert 确认弹窗 + claim-miss 日志）→ 45032e45b0（R4：resync 响应收敛 {id,name,status}，消灭 35KB JWT 回显）
+- 复审史：R1（E-bulk 3 路 + E-syncing 4 路 + lane4 水位结构性双缺陷）→ R2（lane4 E1' delete 残口 + 四路角度互证）→ R3（5/5 PASS 清洁）→ R4（4 PASS + lane3 1E 单路修而不计）→ R5（5/5 全 PASS 0 error 清洁）
+- P3 交付面：realtime（五处 tap → notifySourceChange CAS 分发 → incremental affectedIds 按 pk，防环 !synced 守卫 + 七处覆盖含 bulkInsert/bulkRestore）、AUTO 解锁（realtime 可建 + 向导双档）、incremental 补齐（无 ids → 全量 pass 含 sweep；paused resume 补齐；Syncing 跳过当轮补）、resync 响应收敛（69B 三键，JWT 泄露消灭）、Convert 确认弹窗 + 瞬空白修复 + camelCase 别名 + zh-Hans 键
+- pass 后 backlog：enqueueSyncJob req 未做 minimal shim（HTTP 面已闭，一行加固）、级联镜像止于一跳（fork 简化）、补齐标记单进程内存态、bulkUpdateAll 计数形态不 tap、(RemoteId,eq,id) 插值（HTTP 不可达）、mirror bulkUpsert 走 readonly 校验纵深、paste resync 不复验 hash、afterBulkRestore tap CE 无调用方（EE 树预留）
+- P4 范围（最后实现阶段，用户已批）：LTAR 关系同步三层（Main/LinkedShadow/Junction，RemoteId 配对；removeSyncedLinkFieldDropsJunctionShadow 级联；P1 起拒收 LTAR 的 400 改为接收并建三层）——结构复杂度最高，建议续作会话先扩 f09-research §5.1/§7 P4 节为独立 P4 实现自述再动手
 
 ## F09 P2 PASS（2026-09-19 06:0x，R2/R3/R4 连续清洁连击 3/3）
 
