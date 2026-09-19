@@ -4,7 +4,7 @@
 // user can read, pick a grid view with allow_sync enabled, select fields,
 // choose the on-delete policy, then create. The mirror table is created
 // synchronously (synced:true) and the first full copy runs as a job.
-import { TableSyncOnDeleteAction } from 'nocodb-sdk'
+import { TableSyncOnDeleteAction, TableSyncTrigger } from 'nocodb-sdk'
 import type { TableType } from 'nocodb-sdk'
 
 const props = defineProps<{
@@ -58,6 +58,9 @@ const selectedViewId = ref<string>()
 const fieldMode = ref<'all' | 'specific'>('all')
 const selectedFields = ref<string[]>([])
 const deleteAction = ref<TableSyncOnDeleteAction>(TableSyncOnDeleteAction.Delete)
+// [CE-EE] F09 P3: sync method — Automatically (realtime, source changes
+// propagate within seconds) or Manually (Sync now only)
+const syncTrigger = ref<TableSyncTrigger>(TableSyncTrigger.Manual)
 const syncTitle = ref('')
 
 const destBaseId = computed(() => props.baseId || openedProject.value?.id)
@@ -151,7 +154,9 @@ const createSync = async () => {
             }),
         selectedFields: fieldMode.value === 'all' ? null : selectedFields.value,
         onDeleteAction: deleteAction.value,
-        syncTrigger: 'manual',
+        // [CE-EE] F09 P3: realtime syncs propagate source changes
+        // automatically; manual ones wait for "Sync now"
+        syncTrigger: syncTrigger.value,
       },
     )
     message.success(t('labels.createSyncTable'))
@@ -210,6 +215,8 @@ const openWizard = () => {
   selectedViewId.value = undefined
   sharedViewUrl.value = undefined
   sharedViewPassword.value = undefined
+  // [CE-EE] F09 P3: reset the sync method picker for the next run
+  syncTrigger.value = TableSyncTrigger.Manual
   open.value = true
   loadBases()
 }
@@ -357,7 +364,17 @@ watch(selectedTableId, (id) => {
         </div>
         <div>
           <div class="mb-2 font-medium">{{ $t('labels.syncMethod') }}</div>
-          <div>{{ $t('labels.manually') }} — {{ $t('labels.manuallyDesc') }}</div>
+          <!-- [CE-EE] F09 P3: realtime (Automatically) or manual trigger —
+               realtime syncs are enqueued by source hooks server-side, the
+               status lifecycle after creation is unchanged -->
+          <a-radio-group v-model:value="syncTrigger" class="flex flex-col gap-2">
+            <a-radio :value="TableSyncTrigger.Realtime" data-testid="table-sync-trigger-realtime">
+              {{ $t('labels.automatically') }} — {{ $t('labels.automaticallyDesc') }}
+            </a-radio>
+            <a-radio :value="TableSyncTrigger.Manual" data-testid="table-sync-trigger-manual">
+              {{ $t('labels.manually') }} — {{ $t('labels.manuallyDesc') }}
+            </a-radio>
+          </a-radio-group>
         </div>
         <div>
           <div class="mb-2 font-medium">{{ $t('labels.recordsDeletedInSourceWillBe') }}</div>

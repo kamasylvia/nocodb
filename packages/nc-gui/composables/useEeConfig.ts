@@ -158,11 +158,13 @@ export const useEeConfig = createSharedComposable(() => {
   const blockSync = computed(() => false)
 
   // [CE-EE] F09: Table Sync (manual, P1) — engine + API + wizard implemented
-  // in this fork, so the feature is unblocked here. The realtime/auto trigger
-  // and Custom Sync stay paywalled (blockTableSyncAuto / blockCustomSync).
+  // in this fork, so the feature is unblocked here. Custom Sync stays
+  // paywalled (blockCustomSync).
   const blockTableSync = computed(() => false)
 
-  const blockTableSyncAuto = computed(() => true)
+  // [CE-EE] F09 P3: realtime/auto trigger — incremental engine + source hooks
+  // implemented in this fork, so the Automatically sync mode is unblocked too
+  const blockTableSyncAuto = computed(() => false)
 
   const blockCustomSync = computed(() => true)
 

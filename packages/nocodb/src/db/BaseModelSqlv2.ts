@@ -113,6 +113,9 @@ import { customValidators } from '~/db/util/customValidators';
 import { NcError, OptionsNotExistsError } from '~/helpers/catchError';
 // [CE-EE] R1 fix: map unique violations on the update path too
 import { handleUniqueConstraintError } from '~/helpers/uniqueConstraintErrorHandler';
+// [CE-EE] F09 P3: realtime table-sync taps (dependency-free helper — see
+// table-sync-realtime.ts for why this is not a TableSyncsService import)
+import { tapTableSyncRealtime } from '~/helpers/table-sync-realtime';
 import {
   _wherePk,
   applyPaginate,
@@ -5632,6 +5635,19 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     insertData: Record<string, any>;
     req: NcRequest;
   }): Promise<void> {
+    // [CE-EE] F09 P3: realtime table-sync tap. Mirror tables (synced=true)
+    // are engine-written destinations and never tap (loop protection — the
+    // guard also keeps the engine's own bulkDelete sweep, which has no
+    // skip_hooks param, from re-triggering downstream syncs).
+    try {
+      if (data && this.model && !this.model.synced) {
+        tapTableSyncRealtime(this.context, this.model.id, 'insert', [
+          this.extractPksValues(data, true),
+        ]);
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     await this.handleHooks('after.insert', null, data, req);
     const id = this.extractPksValues(data);
     const filteredAuditData = removeBlankPropsAndMask(insertData || data, [
@@ -5751,6 +5767,17 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     req: NcRequest,
     eventType: AuditV1OperationTypes = AuditV1OperationTypes.DATA_DELETE,
   ): Promise<void> {
+    // [CE-EE] F09 P3: realtime table-sync tap (see afterInsert note —
+    // synced mirrors never tap; covers hard and soft deletes)
+    try {
+      if (data && this.model && !this.model.synced) {
+        tapTableSyncRealtime(this.context, this.model.id, 'delete', [
+          this.extractPksValues(data, true),
+        ]);
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     const id = this.extractPksValues(data);
 
     // disable external source audit in cloud
@@ -5782,6 +5809,20 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     bulkEventType: AuditV1OperationTypes = AuditV1OperationTypes.DATA_BULK_DELETE,
     rowEventType: AuditV1OperationTypes = AuditV1OperationTypes.DATA_DELETE,
   ): Promise<void> {
+    // [CE-EE] F09 P3: realtime table-sync tap (see afterInsert note —
+    // synced mirrors never tap)
+    try {
+      if (data?.length && this.model && !this.model.synced) {
+        tapTableSyncRealtime(
+          this.context,
+          this.model.id,
+          'bulkDelete',
+          data.map((d) => this.extractPksValues(d, true)),
+        );
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     await this.handleHooks('after.bulkDelete', null, data, req);
 
     // bulkAll chunks rows into 100-row batches and calls afterBulkDelete per
@@ -5922,6 +5963,26 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     req: NcRequest,
     isBulkAllOperation = false,
   ): Promise<void> {
+    // [CE-EE] F09 P3: realtime table-sync tap (see afterInsert note — synced
+    // mirrors never tap). The bulkUpdateAll form passes a row count instead
+    // of rows — no row ids to dispatch, so nothing to tap there.
+    try {
+      if (
+        Array.isArray(newData) &&
+        newData.length &&
+        this.model &&
+        !this.model.synced
+      ) {
+        tapTableSyncRealtime(
+          this.context,
+          this.model.id,
+          'bulkUpdate',
+          newData.map((d) => this.extractPksValues(d, true)),
+        );
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     if (!isBulkAllOperation && Array.isArray(newData)) {
       await this.handleHooks('after.bulkUpdate', prevData, newData, req);
     }
@@ -6052,6 +6113,17 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     req: NcRequest,
     updateObj?: Record<string, any>,
   ): Promise<void> {
+    // [CE-EE] F09 P3: realtime table-sync tap (see afterInsert note —
+    // synced mirrors never tap)
+    try {
+      if (newData && this.model && !this.model.synced) {
+        tapTableSyncRealtime(this.context, this.model.id, 'update', [
+          this.extractPksValues(newData, true),
+        ]);
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     // TODO this is a temporary fix for the audit log / DOMPurify causes issue for long text
     const id = this.extractPksValues(newData);
 

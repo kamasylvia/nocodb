@@ -1,0 +1,279 @@
+import { Logger } from '@nestjs/common';
+import { TableSyncStatus, TableSyncTrigger } from 'nocodb-sdk';
+import type { NcContext } from '~/interface/config';
+import { JobTypes } from '~/interface/Jobs';
+import type { IJobsService } from '~/modules/jobs/jobs-service.interface';
+import { MetaTable, RootScopes } from '~/utils/globals';
+import Noco from '~/Noco';
+
+// [CE-EE] F09 P3: realtime table-sync dispatch. BaseModelSqlv2's after*
+// hooks tap into notifySourceChange() (fire-and-forget) whenever a SOURCE
+// table of a realtime sync gains/changes/loses rows. The tap must be
+// statically reachable — BaseModelSqlv2 has no NestJS DI — and importing
+// TableSyncsService from BaseModelSqlv2 would create a value-level import
+// cycle (service -> tables.service -> Model -> BaseModelSqlv2), so the
+// implementation lives in this dependency-free helper and
+// TableSyncsService.notifySourceChange delegates to it.
+//
+// The jobsService is resolved through the bootstrapped Nest application
+// context (Noco.nestApp, stored by Noco.init). Before the app is up no
+// data API can run, so the hook tap never fires in that window; the tap
+// still try/catch-swallows everything (realtime must never break writes).
+
+const logger = new Logger('TableSyncRealtime');
+
+export type TableSyncChangeEvent =
+  | 'insert'
+  | 'update'
+  | 'bulkUpdate'
+  | 'delete'
+  | 'bulkDelete';
+
+/** Watermark re-scan overlap: a subsequent run rescans from
+ *  last_synced_at - OVERLAP so rows written while a run is in flight
+ *  (clock skew between commit and watermark) are not missed. Upserts are
+ *  idempotent, so the overlap can only re-copy, never duplicate. */
+const WATERMARK_OVERLAP_MS = 30_000;
+
+/** [CE-EE] F09 P3: syncs whose event was skipped because the sync was
+ *  Syncing at tap time. The processor checks this after each run and
+ *  enqueues one watermark (empty affectedIds) catch-up job — otherwise a
+ *  change landing mid-run would be lost until the next manual resync.
+ *  In-memory by design: the CE fallback queue runs processors in the same
+ *  process; multi-worker deployments only lose this catch-up nicety, not
+ *  correctness of the queued job itself. */
+const skippedDuringSync = new Set<string>();
+
+export function markSkippedDuringSync(syncId: string) {
+  skippedDuringSync.add(syncId);
+}
+
+export function consumeSkippedDuringSync(syncId: string): boolean {
+  return skippedDuringSync.delete(syncId);
+}
+
+function getJobsService(): IJobsService | null {
+  try {
+    // Noco.nestApp is set in Noco.init before any route is served
+    return Noco.nestApp?.get<IJobsService>('JobsService') ?? null;
+  } catch {
+    return null;
+  }
+}
+
+type SyncTarget = {
+  sync_id: string;
+  workspace_id: string;
+  base_id: string;
+  created_by: string | null;
+  /** filled by the caller of claimAndEnqueue (loadRealtimeTargets callers
+   *  know it; the catch-up path resolves it via the main mapping) */
+  source_table_id?: string;
+};
+
+async function loadRealtimeTargets(
+  sourceModelId: string,
+): Promise<SyncTarget[]> {
+  // one round trip: main mappings sourcing this table joined with their
+  // sync row, filtered to realtime + active. Soft-deleted syncs hard-delete
+  // their mappings (TableSync.delete), so no deleted filter is needed.
+  return (await Noco.ncMeta
+    .knex(MetaTable.TABLE_SYNC_MAPPINGS)
+    .join(
+      MetaTable.TABLE_SYNCS,
+      `${MetaTable.TABLE_SYNCS}.id`,
+      `${MetaTable.TABLE_SYNC_MAPPINGS}.fk_table_sync_id`,
+    )
+    .where({
+      [`${MetaTable.TABLE_SYNC_MAPPINGS}.source_table_id`]: sourceModelId,
+      [`${MetaTable.TABLE_SYNCS}.sync_trigger`]: TableSyncTrigger.Realtime,
+      [`${MetaTable.TABLE_SYNCS}.status`]: TableSyncStatus.Active,
+    })
+    .select(
+      `${MetaTable.TABLE_SYNCS}.id as sync_id`,
+      `${MetaTable.TABLE_SYNCS}.fk_workspace_id as workspace_id`,
+      `${MetaTable.TABLE_SYNCS}.base_id as base_id`,
+      `${MetaTable.TABLE_SYNCS}.created_by as created_by`,
+    )) as SyncTarget[];
+}
+
+/** Claim the sync for exactly one queued run (atomic CAS on status) and
+ *  enqueue the incremental job. `affectedIds` null = no ids known — the
+ *  processor falls back to the RemoteUpdatedAt watermark pull. Returns the
+ *  job id, or null when the claim missed (sync already Syncing). */
+async function claimAndEnqueue(
+  target: SyncTarget,
+  affectedIds: string[] | null,
+): Promise<string | null> {
+  const jobsService = getJobsService();
+  if (!jobsService) {
+    logger.warn(
+      `Table sync realtime event dropped: jobs service unavailable`,
+    );
+    return null;
+  }
+
+  // claim the sync atomically: UPDATE ... WHERE status='active' — a
+  // concurrent/queued run flips status to 'syncing' and this claim misses,
+  // which is the documented "skip while Syncing, catch up afterwards" path
+  const claimed = await Noco.ncMeta
+    .knex(MetaTable.TABLE_SYNCS)
+    .where({ id: target.sync_id, status: TableSyncStatus.Active })
+    .update({ status: TableSyncStatus.Syncing });
+  if (!claimed) return null;
+
+  try {
+    const job = await jobsService.add(JobTypes.TableSyncRun, {
+      context: {
+        workspace_id: target.workspace_id,
+        base_id: target.base_id,
+      },
+      user: { id: target.created_by ?? undefined },
+      syncId: target.sync_id,
+      mode: 'incremental',
+      ...(affectedIds
+        ? { affectedIdsBySource: { [target.source_table_id]: affectedIds } }
+        : {}),
+      // minimal req shim (audit attribution only) — passing the live
+      // request through the queue would serialize the whole object
+      req: { user: { id: target.created_by } } as any,
+    });
+
+    await Noco.ncMeta
+      .knex(MetaTable.TABLE_SYNCS)
+      .where({ id: target.sync_id })
+      .update({ sync_job_id: String(job?.id || '') });
+
+    return String(job?.id || '');
+  } catch (e) {
+    // release the claim so the sync does not stay stuck in 'syncing'
+    await Noco.ncMeta
+      .knex(MetaTable.TABLE_SYNCS)
+      .where({ id: target.sync_id })
+      .update({ status: TableSyncStatus.Active });
+    logger.warn(
+      `Table sync ${target.sync_id}: incremental enqueue failed: ${e?.message}`,
+    );
+    return null;
+  }
+}
+
+/** [CE-EE] F09 P3: entry point for the BaseModelSqlv2 after* taps. Finds
+ *  every active realtime sync whose main mapping sources the touched table
+ *  and enqueues one incremental job per sync (affectedIdsBySource = the
+ *  touched row ids). Fire-and-forget from the caller — this function still
+ *  catches its own errors so a sync problem can never fail the write. */
+export async function notifySourceChange(
+  sourceContext: NcContext,
+  sourceModelId: string,
+  event: TableSyncChangeEvent,
+  rowIds: (string | number)[],
+): Promise<void> {
+  try {
+    if (!sourceModelId || !rowIds?.length) return;
+
+    const targets = await loadRealtimeTargets(sourceModelId);
+    if (!targets.length) return;
+
+    const ids = rowIds.map((id) => String(id)).filter(Boolean);
+    if (!ids.length) return;
+
+    for (const target of targets) {
+      const jobId = await claimAndEnqueue(
+        // the CAS needs the source table id for affectedIdsBySource
+        { ...target, source_table_id: sourceModelId },
+        ids,
+      );
+      if (jobId === null) {
+        markSkippedDuringSync(target.sync_id);
+      } else {
+        logger.debug(
+          `Table sync ${target.sync_id}: enqueued incremental run ${jobId} (${event}, ${ids.length} ids)`,
+        );
+      }
+    }
+  } catch (e) {
+    logger.warn(
+      `Table sync realtime dispatch failed for ${sourceModelId} (${event}): ${e?.message}`,
+    );
+  }
+}
+
+/** [CE-EE] F09 P3: fire-and-forget wrapper used by the BaseModelSqlv2 taps —
+ *  never throws, never awaited on the write path. */
+export function tapTableSyncRealtime(
+  context: NcContext,
+  modelId: string,
+  event: TableSyncChangeEvent,
+  rowIds: (string | number)[],
+): void {
+  // no .catch needed: notifySourceChange catches everything internally
+  void notifySourceChange(
+    context || { workspace_id: RootScopes.ROOT, base_id: RootScopes.ROOT },
+    modelId,
+    event,
+    rowIds,
+  );
+}
+
+/** [CE-EE] F09 P3: called by the processor after a run completes — when
+ *  realtime events were skipped while this sync was Syncing, enqueue one
+ *  watermark catch-up job (empty affectedIds). */
+export async function enqueueCatchUpIfNeeded(syncId: string): Promise<void> {
+  try {
+    if (!syncId || !consumeSkippedDuringSync(syncId)) return;
+
+    const row = (await Noco.ncMeta
+      .knex(MetaTable.TABLE_SYNCS)
+      .where({ id: syncId })
+      .first()) as any;
+    if (!row) return;
+
+    const jobId = await claimAndEnqueue(
+      {
+        sync_id: row.id,
+        workspace_id: row.fk_workspace_id,
+        base_id: row.base_id,
+        created_by: row.created_by,
+        source_table_id: await getSyncSourceTableId(row.id),
+      },
+      null,
+    );
+    if (jobId) {
+      logger.debug(
+        `Table sync ${row.id}: enqueued watermark catch-up run ${jobId}`,
+      );
+    } else {
+      // claim missed (sync not active — error/paused) or the enqueue failed:
+      // keep the marker so a later run can still catch up
+      markSkippedDuringSync(row.id);
+    }
+  } catch (e) {
+    // keep the marker — the catch-up is retried after a later run
+    markSkippedDuringSync(syncId);
+    logger.warn(
+      `Table sync ${syncId}: catch-up enqueue failed: ${e?.message}`,
+    );
+  }
+}
+
+// kept local to avoid importing the TableSync model here (the helper must
+// stay dependency-free for the BaseModelSqlv2 tap)
+async function getSyncSourceTableId(syncId: string): Promise<string> {
+  const mapping = (await Noco.ncMeta
+    .knex(MetaTable.TABLE_SYNC_MAPPINGS)
+    .where({ fk_table_sync_id: syncId, role: 'main' })
+    .first()) as any;
+  return mapping?.source_table_id;
+}
+
+/** [CE-EE] F09 P3: watermark lower bound for the incremental pull —
+ *  last_synced_at minus the overlap window, or '' when no watermark exists
+ *  (caller falls back to a full pull). */
+export function watermarkStart(
+  lastSyncedAt: string | null | undefined,
+): string {
+  const base = lastSyncedAt ? Date.parse(lastSyncedAt) : NaN;
+  if (Number.isNaN(base)) return '';
+  return new Date(base - WATERMARK_OVERLAP_MS).toISOString();
+}

@@ -32,6 +32,8 @@ import { ColumnsService } from '~/services/columns.service';
 import bcrypt from 'bcryptjs';
 import { CacheDelDirection, CacheScope, MetaTable } from '~/utils/globals';
 import Noco from '~/Noco';
+// [CE-EE] F09 P3: realtime dispatch implementation (see notifySourceChange note)
+import { notifySourceChange as notifySourceChangeImpl } from '~/helpers/table-sync-realtime';
 
 // [CE-EE] F09: Table Sync (P1 = manual "NocoDB Sync" minimum loop). The sync
 // mirrors one source table (browse mode: a table in another base the creator
@@ -92,6 +94,27 @@ export class TableSyncsService {
     protected readonly columnsService: ColumnsService,
     @Inject('JobsService') protected readonly jobsService: IJobsService,
   ) {}
+
+  /** [CE-EE] F09 P3: realtime table-sync dispatch — enqueues one incremental
+   *  run per active realtime sync sourcing the touched table. Static because
+   *  the BaseModelSqlv2 after* taps have no DI; the implementation lives in
+   *  ~/helpers/table-sync-realtime (dependency-free — importing this service
+   *  from BaseModelSqlv2 would create a value-level import cycle
+   *  service -> tables.service -> Model -> BaseModelSqlv2) and resolves the
+   *  jobs service through the bootstrapped app context (Noco.nestApp). */
+  static notifySourceChange(
+    sourceContext: NcContext,
+    sourceModelId: string,
+    event:
+      | 'insert'
+      | 'update'
+      | 'bulkUpdate'
+      | 'delete'
+      | 'bulkDelete',
+    rowIds: (string | number)[],
+  ): Promise<void> {
+    return notifySourceChangeImpl(sourceContext, sourceModelId, event, rowIds);
+  }
 
   /** [CE-EE] F09 P2: pull the shared-view uuid out of a pasted URL (or accept
    *  a bare uuid). Handles both the path form (…/nc/grid/<uuid>) and the
@@ -424,13 +447,15 @@ export class TableSyncsService {
       NcError.badRequest('Source base must be a different base');
     }
 
-    // [CE-EE] F09: FEATURE_TABLE_SYNC covers the manual trigger; the realtime
-    // trigger is FEATURE_TABLE_SYNC_AUTO territory (kept paywalled in this
-    // fork) — reject it here so the API cannot bypass the UI gate.
-    if (syncTrigger && syncTrigger !== TableSyncTrigger.Manual) {
-      NcError.badRequest(
-        'Only the manual sync trigger is supported (automatic sync is not enabled)',
-      );
+    // [CE-EE] F09: FEATURE_TABLE_SYNC covered the manual trigger only until
+    // P3 unlocked realtime (FEATURE_TABLE_SYNC_AUTO) — both triggers are now
+    // accepted; anything else is still rejected
+    if (
+      syncTrigger &&
+      syncTrigger !== TableSyncTrigger.Manual &&
+      syncTrigger !== TableSyncTrigger.Realtime
+    ) {
+      NcError.badRequest(`Invalid sync trigger: ${syncTrigger}`);
     }
     if (
       onDeleteAction &&
@@ -694,7 +719,9 @@ export class TableSyncsService {
         selected_fields: selectedFieldsFinal,
         on_delete_action:
           onDeleteAction || TableSyncOnDeleteAction.Delete,
-        sync_trigger: TableSyncTrigger.Manual,
+        // [CE-EE] F09 P3: manual (default) or realtime — realtime syncs get
+        // incremental runs on source changes via the BaseModelSqlv2 taps
+        sync_trigger: (syncTrigger as TableSyncTrigger) || TableSyncTrigger.Manual,
         status: TableSyncStatus.Syncing,
         source_input_mode: isPaste
           ? TableSyncInputMode.Paste

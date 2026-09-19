@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bull';
-import { TableSyncStatus } from 'nocodb-sdk';
+import { TableSyncStatus, UITypes } from 'nocodb-sdk';
 import type { NcContext, NcRequest } from '~/interface/config';
 import type { TableSyncJobData } from '~/interface/Jobs';
 import Model from '~/models/Model';
@@ -10,6 +10,9 @@ import NcConnectionMgrv2 from '~/utils/common/NcConnectionMgrv2';
 import type { BaseModelSqlv2 } from '~/db/BaseModelSqlv2';
 import type { Column } from '~/models';
 import { ColumnsService } from '~/services/columns.service';
+// [CE-EE] F09 P3: watermark helper + post-run catch-up of realtime events
+// that were skipped while a run was in flight
+import { enqueueCatchUpIfNeeded, watermarkStart } from '~/helpers/table-sync-realtime';
 
 // [CE-EE] F09: Table Sync engine. One job run applies a full copy of the
 // source table onto the mirror table:
@@ -22,8 +25,11 @@ import { ColumnsService } from '~/services/columns.service';
 //     allowSystemColumn + the trusted-internal-copy flags). Regular users
 //     keep hitting the synced read-only guard chain — the whitelist is never
 //     reachable over HTTP.
-// P1 scope: full-create (initial) and full-resync ("Sync now") only. Both run
-// the same upsert pass; incremental/realtime are later phases.
+// P1 scope: full-create (initial) and full-resync ("Sync now"). P3 adds the
+// incremental mode: affectedIdsBySource pulls the touched source rows by pk
+// (missing rows follow on_delete_action); an incremental run with no ids
+// pulls the RemoteUpdatedAt watermark (last_synced_at) and skips the
+// disappearance sweep — a partial pull must never sweep unobserved rows.
 
 const SYNC_PAGE_SIZE = 500;
 
@@ -44,9 +50,10 @@ export class TableSyncProcessor {
   constructor(private readonly columnsService: ColumnsService) {}
 
   async job(job: Job) {
-    // [CE-EE] F09: mode is informational in P1 — both full-create and
-    // full-resync run the same RemoteId-keyed upsert pass; only the create
-    // call site differs (fresh mirror, nothing to sweep)
+    // [CE-EE] F09: mode decides the pull shape — full-create/full-resync run
+    // the full RemoteId-keyed upsert pass; incremental runs either the
+    // affectedIds-by-pk pass (realtime taps) or the RemoteUpdatedAt watermark
+    // pull (catch-up), skipping the disappearance sweep
     const { syncId, req } = job.data as TableSyncJobData;
 
     // resolve the sync row without a base-bound context — the row itself
@@ -67,7 +74,7 @@ export class TableSyncProcessor {
     };
 
     try {
-      await this.applyFullSync(context, sync, req);
+      await this.applyFullSync(context, sync, req, job.data as TableSyncJobData);
       await TableSync.update(context, sync.base_id, syncId, {
         status: TableSyncStatus.Active,
         last_error: null,
@@ -85,12 +92,19 @@ export class TableSyncProcessor {
       // rethrowing would trigger queue-level retries against a half-written
       // mirror with no additional information
     }
+
+    // [CE-EE] F09 P3: realtime events that arrived while this run held the
+    // sync are not lost — one watermark catch-up run re-pulls them
+    await enqueueCatchUpIfNeeded(syncId);
   }
 
   private async applyFullSync(
     context: NcContext,
     sync: TableSync,
     req: NcRequest,
+    // [CE-EE] F09 P3: incremental runs carry affectedIdsBySource (realtime
+    // taps) or none (watermark catch-up)
+    jobData?: TableSyncJobData,
   ) {
     const mainMapping = await TableSync.getMainMapping(
       context,
@@ -191,27 +205,6 @@ export class TableSyncProcessor {
     }
     const pkKey = destPkCol.title;
 
-    // existing mirror rows by RemoteId → { id, values } for upsert matching
-    const existingByRemoteId = new Map<string, Record<string, any>>();
-    {
-      let offset = 0;
-      for (;;) {
-        const rows = normalizeListResult(
-          await destBaseModel.list(
-            { limit: SYNC_PAGE_SIZE, offset } as any,
-            { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
-          ),
-        );
-        for (const row of rows) {
-          if (row[remoteIdCol.title] != null) {
-            existingByRemoteId.set(String(row[remoteIdCol.title]), row);
-          }
-        }
-        if (rows.length < SYNC_PAGE_SIZE) break;
-        offset += SYNC_PAGE_SIZE;
-      }
-    }
-
     const selectedFields: string[] | null = sync.selected_fields;
     const fields = selectedFields
       ? fieldMap.filter(
@@ -219,54 +212,7 @@ export class TableSyncProcessor {
         )
       : fieldMap;
 
-    const inserts: Record<string, any>[] = [];
-    const updates: Record<string, any>[] = [];
-    const seenRemoteIds = new Set<string>();
     const markDeleted = sync.on_delete_action === 'mark_deleted';
-
-    let offset = 0;
-    for (;;) {
-      const rows = normalizeListResult(
-        await srcBaseModel.list(
-          { limit: SYNC_PAGE_SIZE, offset } as any,
-          { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
-        ),
-      );
-
-      for (const row of rows) {
-        const remoteId = String(
-          srcBaseModel.extractPksValues(row, true) ?? '',
-        );
-        if (!remoteId || seenRemoteIds.has(remoteId)) continue;
-        seenRemoteIds.add(remoteId);
-
-        const payload: Record<string, any> = {};
-        for (const { srcTitle, destTitle } of fields) {
-          const v = row[srcTitle];
-          payload[destTitle] = v === undefined ? null : v;
-        }
-        payload[remoteIdCol.title] = remoteId;
-
-        const existing = existingByRemoteId.get(remoteId);
-        if (existing) {
-          // matched: refresh values (+ clear a stale RemoteDeleted flag when
-          // the source row reappeared under mark_deleted policy)
-          payload[pkKey] = existing[pkKey];
-          if (remoteDeletedCol && markDeleted) {
-            payload[remoteDeletedCol.title] = false;
-          }
-          updates.push(payload);
-        } else {
-          if (remoteDeletedCol) {
-            payload[remoteDeletedCol.title] = false;
-          }
-          inserts.push(payload);
-        }
-      }
-
-      if (rows.length < SYNC_PAGE_SIZE) break;
-      offset += SYNC_PAGE_SIZE;
-    }
 
     // [CE-EE] F09: the engine-only whitelist channel — these flags never
     // reach the HTTP layer, so the synced read-only guards stay intact for
@@ -279,54 +225,238 @@ export class TableSyncProcessor {
       skipAttachmentOwnershipCheck: true,
     } as const;
 
+    // [CE-EE] F09 P3: pull shape — incremental runs with touched row ids pull
+    // those rows by pk; incremental runs without ids pull the RemoteUpdatedAt
+    // watermark (full pull fallback when the source has no LastModifiedTime
+    // column or no watermark yet); everything else stays the full pass
+    const isIncremental = jobData?.mode === 'incremental';
+    const affectedIds =
+      isIncremental && jobData?.affectedIdsBySource
+        ? (jobData.affectedIdsBySource[mainMapping.source_table_id] ?? [])
+        : null;
+    const srcLmtCol = srcModel.columns.find(
+      (c) => c.uidt === UITypes.LastModifiedTime,
+    );
+    const watermark = isIncremental
+      ? watermarkStart(sync.last_synced_at)
+      : '';
+
+    // shared: build the mirror payload for one source row
+    const buildRowPayload = (row: Record<string, any>) => {
+      const remoteId = String(srcBaseModel.extractPksValues(row, true) ?? '');
+      if (!remoteId) return null;
+      const payload: Record<string, any> = {};
+      for (const { srcTitle, destTitle } of fields) {
+        const v = row[srcTitle];
+        payload[destTitle] = v === undefined ? null : v;
+      }
+      payload[remoteIdCol.title] = remoteId;
+      return { remoteId, payload };
+    };
+
+    // shared: locate the mirror row keyed by RemoteId (partial pulls look up
+    // per row instead of scanning the whole mirror)
+    const findDestRowByRemoteId = async (remoteId: string) =>
+      normalizeListResult(
+        await destBaseModel.list(
+          {
+            limit: 1,
+            where: `(RemoteId,eq,${remoteId})`,
+          } as any,
+          { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
+        ),
+      )[0];
+
+    // shared: apply the on_delete policy to a mirror row whose source row is
+    // gone (delete event, or a partial pull that can no longer see the row)
+    const applyDeletePolicy = async (remoteId: string) => {
+      const destRow = await findDestRowByRemoteId(remoteId);
+      if (!destRow) return;
+      if (markDeleted && remoteDeletedCol) {
+        pendingUpdates.push({
+          [pkKey]: destRow[pkKey],
+          [remoteDeletedCol.title]: true,
+        });
+      } else {
+        pendingDeletes.push({ [pkKey]: destRow[pkKey] });
+      }
+    };
+
+    // shared: upsert one pulled source row
+    const upsertSourceRow = async (row: Record<string, any>) => {
+      const built = buildRowPayload(row);
+      if (!built) return;
+      const { remoteId, payload } = built;
+      const destRow = await findDestRowByRemoteId(remoteId);
+      if (destRow) {
+        payload[pkKey] = destRow[pkKey];
+        if (remoteDeletedCol && markDeleted) {
+          payload[remoteDeletedCol.title] = false;
+        }
+        pendingUpdates.push(payload);
+      } else {
+        if (remoteDeletedCol) {
+          payload[remoteDeletedCol.title] = false;
+        }
+        pendingInserts.push(payload);
+      }
+    };
+
+    const pendingInserts: Record<string, any>[] = [];
+    const pendingUpdates: Record<string, any>[] = [];
+    const pendingDeletes: Record<string, any>[] = [];
+    const seenRemoteIds = new Set<string>();
+
+    if (isIncremental && affectedIds?.length) {
+      // realtime path: pull exactly the touched source rows; ids the source
+      // can no longer return (deleted / soft-deleted / filtered) follow the
+      // on_delete policy
+      for (const id of affectedIds) {
+        const srcRow = await srcBaseModel.readByPk(
+          id,
+          false,
+          {},
+          { ignoreView: true, ignoreRls: true } as any,
+        );
+        if (srcRow) {
+          await upsertSourceRow(srcRow);
+        } else {
+          await applyDeletePolicy(String(id));
+        }
+      }
+    } else if (isIncremental && srcLmtCol && watermark) {
+      // catch-up path: re-pull everything modified since the last completed
+      // run (minus a small overlap window) — disappearance sweep is skipped:
+      // a partial pull must never sweep rows it did not observe
+      let offset = 0;
+      for (;;) {
+        const rows = normalizeListResult(
+          await srcBaseModel.list(
+            {
+              limit: SYNC_PAGE_SIZE,
+              offset,
+              where: `(${srcLmtCol.title},ge,${watermark})`,
+            } as any,
+            { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
+          ),
+        );
+        for (const row of rows) {
+          await upsertSourceRow(row);
+        }
+        if (rows.length < SYNC_PAGE_SIZE) break;
+        offset += SYNC_PAGE_SIZE;
+      }
+    } else {
+      // full pass: scan the existing mirror once, then upsert the whole
+      // source and sweep rows that disappeared
+      const existingByRemoteId = new Map<string, Record<string, any>>();
+      {
+        let offset = 0;
+        for (;;) {
+          const rows = normalizeListResult(
+            await destBaseModel.list(
+              { limit: SYNC_PAGE_SIZE, offset } as any,
+              { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
+            ),
+          );
+          for (const row of rows) {
+            if (row[remoteIdCol.title] != null) {
+              existingByRemoteId.set(String(row[remoteIdCol.title]), row);
+            }
+          }
+          if (rows.length < SYNC_PAGE_SIZE) break;
+          offset += SYNC_PAGE_SIZE;
+        }
+      }
+
+      let offset = 0;
+      for (;;) {
+        const rows = normalizeListResult(
+          await srcBaseModel.list(
+            { limit: SYNC_PAGE_SIZE, offset } as any,
+            { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
+          ),
+        );
+
+        for (const row of rows) {
+          const remoteId = String(
+            srcBaseModel.extractPksValues(row, true) ?? '',
+          );
+          if (!remoteId || seenRemoteIds.has(remoteId)) continue;
+          seenRemoteIds.add(remoteId);
+
+          const payload: Record<string, any> = {};
+          for (const { srcTitle, destTitle } of fields) {
+            const v = row[srcTitle];
+            payload[destTitle] = v === undefined ? null : v;
+          }
+          payload[remoteIdCol.title] = remoteId;
+
+          const existing = existingByRemoteId.get(remoteId);
+          if (existing) {
+            // matched: refresh values (+ clear a stale RemoteDeleted flag when
+            // the source row reappeared under mark_deleted policy)
+            payload[pkKey] = existing[pkKey];
+            if (remoteDeletedCol && markDeleted) {
+              payload[remoteDeletedCol.title] = false;
+            }
+            pendingUpdates.push(payload);
+          } else {
+            if (remoteDeletedCol) {
+              payload[remoteDeletedCol.title] = false;
+            }
+            pendingInserts.push(payload);
+          }
+        }
+
+        if (rows.length < SYNC_PAGE_SIZE) break;
+        offset += SYNC_PAGE_SIZE;
+      }
+
+      // disappearance sweep — only meaningful once rows have been mirrored
+      if (existingByRemoteId.size) {
+        const stale = [...existingByRemoteId.entries()].filter(
+          ([remoteId]) => !seenRemoteIds.has(remoteId),
+        );
+        for (const [remoteId, row] of stale) {
+          if (markDeleted && remoteDeletedCol) {
+            pendingUpdates.push({
+              [pkKey]: row[pkKey],
+              [remoteDeletedCol.title]: true,
+            });
+          } else {
+            pendingDeletes.push({ [pkKey]: row[pkKey] });
+          }
+        }
+      }
+    }
+
     this.logger.log(
-      `Table sync ${sync.id}: source rows=${seenRemoteIds.size} existing=${existingByRemoteId.size} inserts=${inserts.length} updates=${updates.length}`,
+      `Table sync ${sync.id} [${jobData?.mode || 'full'}]: source rows=${seenRemoteIds.size} inserts=${pendingInserts.length} updates=${pendingUpdates.length} deletes=${pendingDeletes.length}`,
     );
 
     // flush in chunks to bound memory on large mirrors
     const CHUNK = 200;
-    for (let i = 0; i < inserts.length; i += CHUNK) {
-      await destBaseModel.bulkInsert(inserts.slice(i, i + CHUNK), {
+    for (let i = 0; i < pendingInserts.length; i += CHUNK) {
+      await destBaseModel.bulkInsert(pendingInserts.slice(i, i + CHUNK), {
         ...engineWriteParams,
         chunkSize: 50,
         typecast: true,
       });
     }
-    for (let i = 0; i < updates.length; i += CHUNK) {
-      await destBaseModel.bulkUpdate(updates.slice(i, i + CHUNK), {
+    for (let i = 0; i < pendingUpdates.length; i += CHUNK) {
+      await destBaseModel.bulkUpdate(pendingUpdates.slice(i, i + CHUNK), {
         cookie: req,
         allowSystemColumn: true,
         skip_hooks: true,
         typecast: true,
       });
     }
-
-    // disappearance sweep — only meaningful once rows have been mirrored
-    if (existingByRemoteId.size) {
-      const stale = [...existingByRemoteId.entries()].filter(
-        ([remoteId]) => !seenRemoteIds.has(remoteId),
-      );
-      if (stale.length) {
-        if (markDeleted && remoteDeletedCol) {
-          await destBaseModel.bulkUpdate(
-            stale.map(([, row]) => ({
-              [pkKey]: row[pkKey],
-              [remoteDeletedCol.title]: true,
-            })),
-            {
-              cookie: req,
-              allowSystemColumn: true,
-              skip_hooks: true,
-              typecast: true,
-            },
-          );
-        } else {
-          await destBaseModel.bulkDelete(
-            stale.map(([, row]) => ({ [pkKey]: row[pkKey] })),
-            { cookie: req, allowSystemColumn: true },
-          );
-        }
-      }
+    for (let i = 0; i < pendingDeletes.length; i += CHUNK) {
+      await destBaseModel.bulkDelete(pendingDeletes.slice(i, i + CHUNK), {
+        cookie: req,
+        allowSystemColumn: true,
+      });
     }
   }
 

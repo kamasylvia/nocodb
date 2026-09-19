@@ -263,16 +263,30 @@ describe('[CE-EE] F09 service state machine', () => {
 
 describe('[CE-EE] F09 engine job (full copy)', () => {
   const makeBaseModel = (rows: any[]) => ({
-    list: jest.fn().mockResolvedValue({ list: rows }),
+    // [CE-EE] F09 P3: support the `(RemoteId,eq,<id>)` lookups the incremental
+    // partial pull makes against the mirror (full passes pass no where)
+    list: jest.fn().mockImplementation((args: any = {}) => {
+      const where = typeof args?.where === 'string' ? args.where : '';
+      const m = where.match(/\(RemoteId,eq,([^)]+)\)/);
+      if (m) {
+        return Promise.resolve({
+          list: rows.filter((r) => String(r.RemoteId) === m[1]),
+        });
+      }
+      return Promise.resolve({ list: rows });
+    }),
     bulkInsert: jest.fn().mockResolvedValue(undefined),
     bulkUpdate: jest.fn().mockResolvedValue(undefined),
     bulkDelete: jest.fn().mockResolvedValue(undefined),
+    readByPk: jest.fn().mockResolvedValue(null),
     extractPksValues: (d: any) => d?.Id ?? null,
   });
 
   const srcCols = [
     { id: 'c1', title: 'Title', column_name: 'title' },
     { id: 'c2', title: 'Qty', column_name: 'qty' },
+    // [CE-EE] F09 P3: watermark anchor — excluded from mirroring (not mapped)
+    { id: 'c3', title: 'UpdatedAt', column_name: 'updated_at', uidt: 'LastModifiedTime' },
   ];
   const destCols = [
     { id: 'd0', title: 'Id', column_name: 'id', pk: true },
@@ -380,8 +394,12 @@ describe('[CE-EE] F09 engine job (full copy)', () => {
     await processor.job({ data: { syncId: 'sync1', req } } as any);
 
     expect(destBaseModel.bulkDelete).not.toHaveBeenCalled();
+    // [CE-EE] F09 P3: the sweep flags are aggregated into the same chunked
+    // bulkUpdate batch as the upserts — the mark for Id 12 must be in it
     const [marked] = destBaseModel.bulkUpdate.mock.calls.at(-1);
-    expect(marked).toEqual([{ Id: 12, RemoteDeleted: true }]);
+    expect(marked).toEqual(
+      expect.arrayContaining([{ Id: 12, RemoteDeleted: true }]),
+    );
   });
 
   it('records engine failures on the sync row (status error + last_error)', async () => {
@@ -414,10 +432,112 @@ describe('[CE-EE] F09 engine job (full copy)', () => {
     expect(Model.get).not.toHaveBeenCalled();
   });
 
-  it('rejects realtime trigger at the API boundary (auto sync stays paywalled)', async () => {
+  // [CE-EE] F09 P3: incremental mode — realtime taps (affectedIdsBySource)
+  // and the watermark catch-up pull
+  it('incremental run pulls affected rows by pk and applies the delete policy to vanished ids', async () => {
+    const { srcBaseModel, destBaseModel } = setup(
+      [{ Id: 1, Title: 'row1-updated', Qty: 1 }],
+      [
+        { Id: 11, Title: 'row1', Qty: 1, RemoteId: '1' },
+        { Id: 99, Title: 'stale', Qty: 9, RemoteId: '77' },
+      ],
+    );
+    srcBaseModel.readByPk.mockImplementation(async (id: any) =>
+      String(id) === '1' ? { Id: 1, Title: 'row1-updated', Qty: 1 } : null,
+    );
+
+    await processor_job({
+      mode: 'incremental',
+      affectedIdsBySource: { t_src: ['1', '77'] },
+    });
+
+    // row 1 was upserted in place; id 77 is gone from the source and the
+    // delete policy removes its mirror row
+    expect(destBaseModel.bulkInsert).not.toHaveBeenCalled();
+    expect(destBaseModel.bulkUpdate).toHaveBeenCalledTimes(1);
+    expect(destBaseModel.bulkUpdate.mock.calls[0][0]).toEqual([
+      { Id: 11, Title: 'row1-updated', Qty: 1, RemoteId: '1' },
+    ]);
+    expect(destBaseModel.bulkDelete).toHaveBeenCalledTimes(1);
+    expect(destBaseModel.bulkDelete.mock.calls[0][0]).toEqual([{ Id: 99 }]);
+    // the disappearance sweep never runs on a partial pull
+    expect(srcBaseModel.list).not.toHaveBeenCalled();
+  });
+
+  it('mark_deleted policy flags vanished affected ids instead of deleting them', async () => {
+    const { srcBaseModel, destBaseModel } = setup(
+      [],
+      [{ Id: 99, Title: 'stale', Qty: 9, RemoteId: '77' }],
+    );
+    srcBaseModel.readByPk.mockResolvedValue(null);
+    (TableSync.getAny as any).mockResolvedValue(
+      syncRow({ on_delete_action: 'mark_deleted' }),
+    );
+
+    await processor_job({
+      mode: 'incremental',
+      affectedIdsBySource: { t_src: ['77'] },
+    });
+
+    expect(destBaseModel.bulkDelete).not.toHaveBeenCalled();
+    expect(destBaseModel.bulkUpdate.mock.calls.at(-1)[0]).toEqual([
+      { Id: 99, RemoteDeleted: true },
+    ]);
+  });
+
+  it('incremental run without ids pulls the LastModifiedTime watermark and skips the sweep', async () => {
+    const { destBaseModel } = setup(
+      [
+        { Id: 1, Title: 'row1-changed', Qty: 1, UpdatedAt: '2026-09-19T01:00:00Z' },
+        { Id: 2, Title: 'row2-changed', Qty: 2, UpdatedAt: '2026-09-19T02:00:00Z' },
+      ],
+      [
+        { Id: 11, Title: 'row1', Qty: 1, RemoteId: '1' },
+        { Id: 12, Title: 'row2', Qty: 2, RemoteId: '2' },
+      ],
+    );
+    (TableSync.getAny as any).mockResolvedValue(
+      syncRow({ last_synced_at: '2026-09-19T00:30:00.000Z' }),
+    );
+
+    await processor_job({ mode: 'incremental' });
+
+    // watermark pull: both mock rows update in place — and the sweep that
+    // would touch unobserved mirror rows is skipped entirely
+    expect(destBaseModel.bulkInsert).not.toHaveBeenCalled();
+    expect(destBaseModel.bulkDelete).not.toHaveBeenCalled();
+    expect(destBaseModel.bulkUpdate).toHaveBeenCalledTimes(1);
+    const [updated] = destBaseModel.bulkUpdate.mock.calls[0];
+    expect(updated).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ Id: 11, Title: 'row1-changed', RemoteId: '1' }),
+        expect.objectContaining({ Id: 12, Title: 'row2-changed', RemoteId: '2' }),
+      ]),
+    );
+    expect(TableSync.update).toHaveBeenCalledWith(
+      expect.anything(),
+      'dest1',
+      'sync1',
+      expect.objectContaining({
+        status: TableSyncStatus.Active,
+        last_synced_at: expect.any(String),
+      }),
+    );
+  });
+
+  // small wrapper: run the processor job with extra job data merged in
+  async function processor_job(extra: Record<string, any>) {
+    const processor = new TableSyncProcessor();
+    await processor.job({
+      data: { syncId: 'sync1', req, ...extra },
+    } as any);
+  }
+
+  it('rejects an unknown sync trigger at the API boundary', async () => {
+    // [CE-EE] F09 P3: realtime was unlocked (previously rejected as
+    // paywalled) — manual and realtime are both accepted, everything else 400s
     const jobsService = { add: jest.fn() };
     const service = new TableSyncsService({} as any, {} as any, jobsService as any);
-    baseUserGet.mockResolvedValue({ roles: 'owner' });
     await expect(
       service.createSync(
         ctx,
@@ -425,11 +545,11 @@ describe('[CE-EE] F09 engine job (full copy)', () => {
         {
           sourceBaseId: 'src1',
           sourceTableId: 't1',
-          syncTrigger: 'realtime',
+          syncTrigger: 'hourly',
         },
         req,
       ),
-    ).rejects.toThrow(/manual/i);
+    ).rejects.toThrow(/invalid sync trigger/i);
     expect(jobsService.add).not.toHaveBeenCalled();
   });
 });

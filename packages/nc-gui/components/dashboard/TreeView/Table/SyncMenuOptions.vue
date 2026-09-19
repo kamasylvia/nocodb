@@ -21,7 +21,8 @@ const { sync, isUpdating, isLoading, load, syncNow, freeze, resume, remove, deta
   useTableSync(props.baseId, props.table.id!)
 
 const { baseUrl, loadTables } = useBase()
-const { removeMeta } = useMetas()
+// [CE-EE] F09 P3: getMeta is needed to force-refetch meta after detach
+const { removeMeta, getMeta } = useMetas()
 const { removeFromRecentViews } = useViewsStore()
 // [CE-EE] F09 R8(lane5): state refs must come via storeToRefs — a bare
 // destructure of a pinia setup store unwraps them once at setup time, so
@@ -58,13 +59,19 @@ const onSyncNow = async () => {
   emit('close')
 }
 
-// [CE-EE] F09 P2: convert the mirror into a regular editable table —
+// [CE-EE] F09 P3: convert the mirror into a regular editable table —
 // the sync is removed, the table and rows stay in the tree
 const onDetach = async () => {
+  const { loadViews } = useViewsStore()
   await detach()
   emit('close')
   removeMeta(props.baseId, props.table.id!, true)
   await loadTables()
+  // [CE-EE] F09 P3: the table survives as a regular one — refetch its meta
+  // (synced/readonly flags are gone now) and force-reload the view list, or
+  // the grid that is already open on this table renders a blank stale frame
+  await getMeta(props.baseId, props.table.id!, true)
+  await loadViews({ tableId: props.table.id!, baseId: props.baseId, force: true })
 }
 
 const onDelete = async () => {
