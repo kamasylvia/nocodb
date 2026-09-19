@@ -485,7 +485,7 @@ describe('[CE-EE] F09 engine job (full copy)', () => {
     ]);
   });
 
-  it('incremental run without ids pulls the LastModifiedTime watermark and skips the sweep', async () => {
+  it('incremental run without ids falls back to the full pass with sweep (R2 lane4 E1\')', async () => {
     const { destBaseModel } = setup(
       [
         { Id: 1, Title: 'row1-changed', Qty: 1, UpdatedAt: '2026-09-19T01:00:00Z' },

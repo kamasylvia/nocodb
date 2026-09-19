@@ -29,12 +29,6 @@ export type TableSyncChangeEvent =
   | 'delete'
   | 'bulkDelete';
 
-/** Watermark re-scan overlap: a subsequent run rescans from
- *  last_synced_at - OVERLAP so rows written while a run is in flight
- *  (clock skew between commit and watermark) are not missed. Upserts are
- *  idempotent, so the overlap can only re-copy, never duplicate. */
-const WATERMARK_OVERLAP_MS = 30_000;
-
 /** [CE-EE] F09 P3: syncs whose event was skipped because the sync was
  *  Syncing at tap time. The processor checks this after each run and
  *  enqueues one watermark (empty affectedIds) catch-up job — otherwise a
@@ -127,7 +121,14 @@ async function claimAndEnqueue(
     .knex(MetaTable.TABLE_SYNCS)
     .where({ id: target.sync_id, status: TableSyncStatus.Active })
     .update({ status: TableSyncStatus.Syncing });
-  if (!claimed) return null;
+  if (!claimed) {
+    // [CE-EE] F09 P3-R2(lane2/R1 M3): claim misses were silent — a debug
+    // line makes the skip -> catch-up chain observable in the logs
+    logger.debug(
+      `Table sync ${target.sync_id}: claim missed (syncing/paused) — marked for catch-up`,
+    );
+    return null;
+  }
 
   try {
     const job = await jobsService.add(JobTypes.TableSyncRun, {
@@ -274,13 +275,4 @@ async function getSyncSourceTableId(syncId: string): Promise<string> {
   return mapping?.source_table_id;
 }
 
-/** [CE-EE] F09 P3: watermark lower bound for the incremental pull —
- *  last_synced_at minus the overlap window, or '' when no watermark exists
- *  (caller falls back to a full pull). */
-export function watermarkStart(
-  lastSyncedAt: string | null | undefined,
-): string {
-  const base = lastSyncedAt ? Date.parse(lastSyncedAt) : NaN;
-  if (Number.isNaN(base)) return '';
-  return new Date(base - WATERMARK_OVERLAP_MS).toISOString();
-}
+

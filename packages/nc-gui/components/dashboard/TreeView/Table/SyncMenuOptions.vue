@@ -33,6 +33,9 @@ const { baseTables, activeTable } = storeToRefs(tablesStore)
 const { openTable } = tablesStore
 
 const isDeleteConfirmOpen = ref(false)
+// [CE-EE] F09 P3-R2(lane5): convert removes the sync (data kept) — same
+// confirmation flow as delete for symmetry
+const isConvertConfirmOpen = ref(false)
 
 // [CE-EE] F09 R5(lane1/2/5): the dropdown overlay keeps this component
 // mounted after the first open — reload the sync record every time the
@@ -62,6 +65,7 @@ const onSyncNow = async () => {
 // [CE-EE] F09 P3: convert the mirror into a regular editable table —
 // the sync is removed, the table and rows stay in the tree
 const onDetach = async () => {
+  isConvertConfirmOpen.value = false
   const { loadViews } = useViewsStore()
   await detach()
   emit('close')
@@ -169,7 +173,7 @@ const onDelete = async () => {
       v-if="sync.status !== TableSyncStatus.Syncing"
       data-testid="table-sync-menu-convert"
       :disabled="isUpdating"
-      @click="onDetach"
+      @click="isConvertConfirmOpen = true"
     >
       <div class="flex gap-2 items-center w-full">
         <GeneralIcon icon="table" class="opacity-80" />
@@ -213,6 +217,36 @@ const onDelete = async () => {
           @click="onDelete"
         >
           {{ $t('labels.deleteSync') }}
+        </NcButton>
+      </div>
+    </NcModal>
+
+    <!-- [CE-EE] F09 P3-R2(lane5): convert confirmation — mirrors the delete
+         confirm (nc/Modal has no footer slot outlet, body buttons only) -->
+    <NcModal
+      v-model:visible="isConvertConfirmOpen"
+      :title="$t('labels.convertToRegularTable')"
+      size="small"
+      class="nc-table-sync-convert-modal"
+    >
+      <div class="text-sm">
+        {{ sync?.title }} — "{{ table.title }}"
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <NcButton
+          type="secondary"
+          data-testid="table-sync-convert-cancel"
+          @click="isConvertConfirmOpen = false"
+        >
+          {{ $t('general.cancel') }}
+        </NcButton>
+        <NcButton
+          type="primary"
+          data-testid="table-sync-convert-confirm"
+          :loading="isUpdating"
+          @click="onDetach"
+        >
+          {{ $t('labels.convertToRegularTable') }}
         </NcButton>
       </div>
     </NcModal>

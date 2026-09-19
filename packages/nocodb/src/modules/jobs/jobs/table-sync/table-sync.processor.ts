@@ -10,7 +10,7 @@ import NcConnectionMgrv2 from '~/utils/common/NcConnectionMgrv2';
 import type { BaseModelSqlv2 } from '~/db/BaseModelSqlv2';
 import type { Column } from '~/models';
 import { ColumnsService } from '~/services/columns.service';
-// [CE-EE] F09 P3: watermark helper + post-run catch-up of realtime events
+// [CE-EE] F09 P3: post-run catch-up of realtime events
 // that were skipped while a run was in flight
 import { enqueueCatchUpIfNeeded } from '~/helpers/table-sync-realtime';
 
@@ -28,7 +28,7 @@ import { enqueueCatchUpIfNeeded } from '~/helpers/table-sync-realtime';
 // P1 scope: full-create (initial) and full-resync ("Sync now"). P3 adds the
 // incremental mode: affectedIdsBySource pulls the touched source rows by pk
 // (missing rows follow on_delete_action); an incremental run with no ids
-// pulls the RemoteUpdatedAt watermark (last_synced_at) and skips the
+// without touched ids falls back to the full pass (upsert + sweep) and skips the
 // disappearance sweep — a partial pull must never sweep unobserved rows.
 
 const SYNC_PAGE_SIZE = 500;
@@ -52,8 +52,7 @@ export class TableSyncProcessor {
   async job(job: Job) {
     // [CE-EE] F09: mode decides the pull shape — full-create/full-resync run
     // the full RemoteId-keyed upsert pass; incremental runs either the
-    // affectedIds-by-pk pass (realtime taps) or the RemoteUpdatedAt watermark
-    // pull (catch-up), skipping the disappearance sweep
+    // affectedIds-by-pk pass (realtime taps) or the full-pass catch-up (catch-up), skipping the disappearance sweep
     const { syncId, req } = job.data as TableSyncJobData;
 
     // resolve the sync row without a base-bound context — the row itself
@@ -94,7 +93,7 @@ export class TableSyncProcessor {
     }
 
     // [CE-EE] F09 P3: realtime events that arrived while this run held the
-    // sync are not lost — one watermark catch-up run re-pulls them
+    // sync are not lost — one full-pass catch-up run re-pulls them
     await enqueueCatchUpIfNeeded(syncId);
   }
 
@@ -103,7 +102,7 @@ export class TableSyncProcessor {
     sync: TableSync,
     req: NcRequest,
     // [CE-EE] F09 P3: incremental runs carry affectedIdsBySource (realtime
-    // taps) or none (watermark catch-up)
+    // taps) or none (full-pass catch-up)
     jobData?: TableSyncJobData,
   ) {
     const mainMapping = await TableSync.getMainMapping(
@@ -318,31 +317,14 @@ export class TableSyncProcessor {
           await applyDeletePolicy(String(id));
         }
       }
-    } else if (isIncremental) {
-      // [CE-EE] F09 P3-R1(lane4 E2/E3): catch-up = full upsert pass without
-      // the disappearance sweep. The previous RemoteUpdatedAt watermark pull
-      // was doubly broken: the `(col,ge,ISO)` where form is rejected 422 for
-      // LMT system columns, and inserted rows carry a physical NULL
-      // updated_at so a time-based pull can structurally never see them.
-      // The RemoteId-keyed upsert is idempotent, so a full pass is always
-      // correct; skipping the sweep is what keeps a partial catch-up from
-      // deleting rows it did not observe.
-      let offset = 0;
-      for (;;) {
-        const rows = normalizeListResult(
-          await srcBaseModel.list(
-            { limit: SYNC_PAGE_SIZE, offset } as any,
-            { ignoreViewFilterAndSort: true, ignoreRls: true } as any,
-          ),
-        );
-        for (const row of rows) {
-          await upsertSourceRow(row);
-        }
-        if (rows.length < SYNC_PAGE_SIZE) break;
-        offset += SYNC_PAGE_SIZE;
-      }
     } else {
-      // full pass: scan the existing mirror once, then upsert the whole
+      // [CE-EE] F09 P3-R2(lane4 E1'): incremental runs WITHOUT touched ids
+      // (catch-up) fall through to the FULL pass — upsert plus disappearance
+      // sweep. The previous no-sweep catch-up could not see in-window DELETE
+      // events (a deleted source row is simply absent from the pull, and
+      // without a sweep its mirror row survived as a live ghost). A full
+      // pull observes every row, so the sweep is safe and required here.
+      // Full pass: scan the existing mirror once, then upsert the whole
       // source and sweep rows that disappeared
       const existingByRemoteId = new Map<string, Record<string, any>>();
       {
