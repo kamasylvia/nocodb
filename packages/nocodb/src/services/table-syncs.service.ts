@@ -749,8 +749,10 @@ export class TableSyncsService {
       if (!srcModel) NcError.badRequest('Shared view not found');
       await srcModel.getColumns(srcContext);
       const mirrorable = this.getMirrorableColumns(srcModel);
-      // [CE-EE] F09 P4: offer the syncable mm link columns to the wizard
-      const pasteLinks = await this.loadSyncableLinks(srcContext, srcModel);
+      // [CE-EE] F09 P4-R1(lane3b E2): link columns are NOT offered in paste
+      // mode — the paste credential is a single-view exposure and link sync
+      // reads whole related tables (createSync rejects them with 400, so
+      // listing them here would only set the wizard up for a dead end)
       return {
         sourceInputMode: TableSyncInputMode.Paste,
         sourceBase: { id: (view as any).base_id, title: (view as any).base_id },
@@ -767,15 +769,7 @@ export class TableSyncsService {
             id: c.id,
             title: c.title,
             uidt: c.uidt,
-          }))
-          .concat(
-            pasteLinks.map((l) => ({
-              id: l.column.id,
-              title: l.column.title,
-              uidt: l.column.uidt,
-              link: true,
-            })),
-          ),
+          })),
       };
     }
 
@@ -1021,6 +1015,19 @@ export class TableSyncsService {
       ? syncableLinks.filter((l) => selectedFieldsFinal!.includes(l.column.title))
       : syncableLinks;
 
+    // [CE-EE] F09 P4-R1(lane3b E2, security ruling = reject): paste-mode
+    // credentials are a single-view exposure — the share link authorizes
+    // THIS view only, while link sync pulls the whole related tables
+    // (shadow tables ride the main credential with source_view_id=null).
+    // Allowing links would upgrade a shared-view token into full-table read
+    // access on tables the paste credential never covered. Link sync stays
+    // browse-only (the creator there already holds source read access).
+    if (isPaste && selectedLinks.length) {
+      NcError.badRequest(
+        'Linked fields cannot be synced from a pasted shared view: the share credential only exposes this single view, while syncing linked fields reads the related tables. Create the sync in browse mode to include linked fields.',
+      );
+    }
+
     const destBase = await Base.getWithInfo(context, baseId);
     if (!destBase) NcError.baseNotFound(baseId);
 
@@ -1217,8 +1224,12 @@ export class TableSyncsService {
       return this.getSync(context, baseId, sync.id);
     } catch (e) {
       // any structure created before the failure is removed so the base is
-      // not left with stranded synced tables (mirror / shadows / junctions)
-      for (const tableId of createdDestTableIds) {
+      // not left with stranded synced tables (mirror / shadows / junctions).
+      // [CE-EE] F09 P4-R1(lane5 obs): delete in REVERSE creation order —
+      // junctions hold FKs to the mirror and the shadows, so removing the
+      // mirror first made the junction delete the only survivor of the
+      // best-effort pass on PG
+      for (const tableId of [...createdDestTableIds].reverse()) {
         try {
           await this.tablesService.tableDelete(context, {
             tableId,
@@ -1327,6 +1338,9 @@ export class TableSyncsService {
     // mirror columns, drop removed ones (with their column mappings), then
     // persist the new selection. Runs only while active+idle (guards above).
     let selectedFieldsPatch: string[] | null | undefined;
+    // [CE-EE] F09 P4-R1: true when this PATCH added/dropped columns or link
+    // layers — drives the post-patch full-resync data backfill
+    let structureChangedRecently = false;
     if (body?.selected_fields !== undefined) {
       if (
         body.selected_fields !== null &&
@@ -1400,31 +1414,46 @@ export class TableSyncsService {
         srcModel.columns.map((c: any) => [c.id, c]),
       );
       const destColById = new Map(destModel.columns.map((c: any) => [c.id, c]));
-      const mappedSrcIds = new Set(colMappings.map((m) => m.source_column_id));
+      // [CE-EE] F09 P4-R1(lane4b E1): only the MAIN mapping scope drives the
+      // mirror-column lifecycle — rows under a linked_shadow mapping are the
+      // shadow's own column identities and are managed by the shadow
+      // lifecycle (ensure/dropShadowForRelated), never by this loop. The old
+      // unfiltered loop silently deleted shadow column-identity rows.
+      const mainColMappings = colMappings.filter(
+        (m) => m.fk_table_sync_mapping_id === mainMapping.id,
+      );
+      const mappedSrcIds = new Set(mainColMappings.map((m) => m.source_column_id));
       const desiredSrcIds = new Set(desired.map((c: any) => c.id));
+      // [CE-EE] F09 P4-R1(lane1/3b/4b/5 E1): link mappings are kept / dropped
+      // by the DESIRED LINK set — desiredSrcIds never contains link columns
+      // (they are virtual, excluded by isMirrorableSourceColumn), so the old
+      // desiredSrcIds-only test classified every mapped link as dropped and
+      // tore down its junction + shadow on every selection PATCH, even when
+      // the link was still selected. null selection = all fields INCLUDING
+      // the existing links (desiredLinks stays = all syncable links).
+      const desiredLinkSrcIds = new Set(
+        desiredLinks.map((l) => l.column.id),
+      );
 
       // [CE-EE] F09 P4: related tables still referenced by KEPT link columns
       // — a shadow is only dropped when its last referencing link leaves
-      const keptLinkRtIds = new Set<string>();
-      for (const m of colMappings) {
-        if (!desiredSrcIds.has(m.source_column_id)) continue;
-        const srcCol: any = srcColById.get(m.source_column_id);
-        if (!srcCol || !isSyncLinkColumnUidt(srcCol.uidt)) continue;
-        const opt = await (srcCol as Column).getColOptions<LinkToAnotherRecordColumn>(
-          sourceContext,
-        );
-        if (opt?.fk_related_model_id) {
-          keptLinkRtIds.add(opt.fk_related_model_id);
-        }
-      }
+      // (now derived from the desired links instead of the dead
+      // desiredSrcIds-join that always produced an empty set)
+      const keptLinkRtIds = new Set<string>(
+        desiredLinks.map((l) => l.relatedModelId),
+      );
+
+      let structureChanged = false;
 
       // drops: mapped source columns leaving the selection → drop the mirror
       // column (forceDeleteSystem bypasses the synced-column delete guard —
       // the sync handler is the authority) + remove the mapping row.
       // Link-typed drops cascade: junction table first, then the shadow if
-      // orphaned (removeSyncedLinkFieldDropsJunctionShadow semantics).
-      for (const m of colMappings) {
+      // orphaned (removeSyncedLinkFieldDropsJunctionShadow semantics). Link
+      // mappings whose source column is still in the desired links are KEPT.
+      for (const m of mainColMappings) {
         if (desiredSrcIds.has(m.source_column_id)) continue;
+        if (desiredLinkSrcIds.has(m.source_column_id)) continue;
         const srcCol: any = srcColById.get(m.source_column_id);
         if (srcCol && isSyncLinkColumnUidt(srcCol.uidt)) {
           const opt = await (srcCol as Column).getColOptions<LinkToAnotherRecordColumn>(
@@ -1448,6 +1477,7 @@ export class TableSyncsService {
               req,
             });
           }
+          structureChanged = true;
           continue;
         }
         const destCol = destColById.get(m.dest_column_id);
@@ -1467,6 +1497,7 @@ export class TableSyncsService {
             source_column_id: m.source_column_id,
           })
           .del();
+        structureChanged = true;
       }
 
       // adds: desired source columns not yet mapped → create the mirror
@@ -1522,66 +1553,85 @@ export class TableSyncsService {
           } as any,
         ]);
       }
+      if (toAdd.length) {
+        structureChanged = true;
+      }
 
       // [CE-EE] F09 P4: link adds — build shadow (+ junction) layers for
-      // newly selected link columns (shared with the createSync flow)
-      const mappedLinkSrcIds = new Set(
-        colMappings
-          .filter((m) => {
-            const sc: any = srcColById.get(m.source_column_id);
-            return sc && isSyncLinkColumnUidt(sc.uidt);
-          })
-          .map((m) => m.source_column_id),
-      );
+      // newly selected link columns (shared with the createSync flow).
+      // [CE-EE] F09 P4-R1(lane3b M1 / lane4b M2 / lane5 M1): the shadows map
+      // and taken titles are hoisted OUT of the loop and SEEDED with the
+      // existing linked_shadow mappings — a second link column pointing at
+      // the same related table must reuse that table's shadow (fresh maps
+      // per iteration built one shadow per link, and the engine's
+      // shadowRemoteToPkBySource is keyed by source table id, so dual
+      // shadows made the second one silently win and mis-key junction pairs).
       const toAddLinks = desiredLinks.filter(
-        (l) => !mappedLinkSrcIds.has(l.column.id),
+        (l) => !mappedSrcIds.has(l.column.id),
       );
-      for (const link of toAddLinks) {
-        const shadow = await this.ensureShadowForRelated({
-          context,
-          sourceContext,
-          sync,
-          relatedModelId: link.relatedModelId,
-          destSourceId: (destModel as any).source_id,
-          takenTitles: new Set<string>(),
-          req,
-          shadows: new Map(),
-        });
-        const { addedCol, junctionModelId } = await this.addMirrorLinkColumn({
-          context,
-          sync,
-          mainMirrorId: mainMapping.dest_table_id,
-          shadowModelId: shadow.model.id,
-          srcLinkCol: link.column,
-          req,
-        });
-        await this.insertTableSyncMapping(context, {
-          base_id: baseId,
-          fk_workspace_id: context.workspace_id,
-          fk_table_sync_id: tableSyncId,
-          dest_base_id: baseId,
-          dest_table_id: junctionModelId,
-          role: TableSyncMappingRole.Junction,
-        });
-        await TableSync.insertColumnMappings(context, [
-          {
+      if (toAddLinks.length) {
+        const destSourceId = (destModel as any).source_id;
+        const takenTitles = new Set<string>();
+        const shadows = new Map<string, { model: Model; mapping: any }>();
+        for (const m of mappings as any[]) {
+          if (m.role !== TableSyncMappingRole.LinkedShadow) continue;
+          if (shadows.has(m.source_table_id)) continue;
+          const existingModel = await Model.get(context, m.dest_table_id);
+          if (!existingModel || existingModel.deleted) continue;
+          await existingModel.getColumns(context);
+          shadows.set(m.source_table_id, { model: existingModel, mapping: m });
+        }
+        for (const link of toAddLinks) {
+          const shadow = await this.ensureShadowForRelated({
+            context,
+            sourceContext,
+            sync,
+            relatedModelId: link.relatedModelId,
+            destSourceId,
+            takenTitles,
+            req,
+            shadows,
+          });
+          const { addedCol, junctionModelId } = await this.addMirrorLinkColumn({
+            context,
+            sync,
+            mainMirrorId: mainMapping.dest_table_id,
+            shadowModelId: shadow.model.id,
+            srcLinkCol: link.column,
+            req,
+          });
+          await this.insertTableSyncMapping(context, {
             base_id: baseId,
             fk_workspace_id: context.workspace_id,
             fk_table_sync_id: tableSyncId,
-            fk_table_sync_mapping_id: mainMapping.id,
-            source_workspace_id: mainMapping.source_workspace_id,
-            source_base_id: mainMapping.source_base_id,
-            source_table_id: mainMapping.source_table_id,
-            source_column_id: link.column.id,
             dest_base_id: baseId,
-            dest_table_id: mainMapping.dest_table_id,
-            dest_column_id: addedCol.id,
-          } as any,
-        ]);
+            dest_table_id: junctionModelId,
+            role: TableSyncMappingRole.Junction,
+          });
+          await TableSync.insertColumnMappings(context, [
+            {
+              base_id: baseId,
+              fk_workspace_id: context.workspace_id,
+              fk_table_sync_id: tableSyncId,
+              fk_table_sync_mapping_id: mainMapping.id,
+              source_workspace_id: mainMapping.source_workspace_id,
+              source_base_id: mainMapping.source_base_id,
+              source_table_id: mainMapping.source_table_id,
+              source_column_id: link.column.id,
+              dest_base_id: baseId,
+              dest_table_id: mainMapping.dest_table_id,
+              dest_column_id: addedCol.id,
+            } as any,
+          ]);
+        }
+        structureChanged = true;
       }
 
       selectedFieldsPatch =
         body.selected_fields === null ? null : (body.selected_fields as string[]);
+      // [CE-EE] F09 P4-R1(lane1 E1④): remember whether the structure moved —
+      // the data backfill job is enqueued after the selection patch persists
+      structureChangedRecently = structureChanged;
     }
 
     const patch: Record<string, any> = { updated_by: req.user.id };
@@ -1607,6 +1657,16 @@ export class TableSyncsService {
     }
 
     await TableSync.update(context, baseId, tableSyncId, patch);
+
+    // [CE-EE] F09 P4-R1(lane1 E1④): any structural change (columns or link
+    // layers added / dropped) is followed by one full-resync so the new
+    // layers get their data backfill instead of sitting empty until the next
+    // manual sync. Persisted BEFORE the enqueue so the engine job reads the
+    // new selected_fields.
+    if (structureChangedRecently) {
+      await this.enqueueSyncJob(context, sync, 'full-resync', req);
+    }
+
     return this.getSync(context, baseId, tableSyncId);
   }
 
@@ -1631,6 +1691,16 @@ export class TableSyncsService {
     // forceDeleteSyncs, the same authority path deleteSync always had).
     // Best-effort per table: an already-removed structure must not block
     // the sync deletion.
+    // [CE-EE] F09 P4-R1(lane3b M3): the MAIN mirror is not best-effort — if
+    // its delete fails while the sync row is removed, the surviving synced
+    // table becomes a permanent read-only zombie (tables.service blocks
+    // writes and deletes, and there is no sync left to detach). Abort with
+    // the original error and KEEP the sync row so the caller can retry.
+    const mainMapping = mappings.find(
+      (m: any) => m.role === TableSyncMappingRole.Main,
+    );
+    // nothing to protect when the sync has no live main mirror left
+    let mainMirrorDeleted = !mainMapping?.dest_table_id;
     const roleOrder: Record<string, number> = {
       [TableSyncMappingRole.Junction]: 0,
       [TableSyncMappingRole.LinkedShadow]: 1,
@@ -1645,9 +1715,30 @@ export class TableSyncsService {
           forceDeleteSyncs: true,
           req,
         });
-      } catch {
-        /* best effort — keep tearing the sync down */
+        if (m.role === TableSyncMappingRole.Main) {
+          mainMirrorDeleted = true;
+        }
+      } catch (e) {
+        if (m.role !== TableSyncMappingRole.Main) {
+          /* best effort — keep tearing the sync down */
+          continue;
+        }
+        // table already gone (out-of-band hard delete / trash)? then there is
+        // no zombie to protect — keep deleting the sync
+        const stillThere = await Model.get(context, m.dest_table_id);
+        if (!stillThere || stillThere.deleted) {
+          mainMirrorDeleted = true;
+          continue;
+        }
+        throw e;
       }
+    }
+    if (!mainMirrorDeleted) {
+      // defensive: unreachable when mainMapping was deleted above, kept as a
+      // guard against future role-order changes silently skipping main
+      NcError.badRequest(
+        'The mirror table could not be deleted — the sync is kept so it can be retried or detached',
+      );
     }
 
     await TableSync.delete(context, baseId, tableSyncId);

@@ -6582,6 +6582,32 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     }
   }
 
+  // [CE-EE] F09 P4-R1(lane3b E1 / lane4b E2): the LTAR link channels
+  // (addChild / removeChild / addLinks / removeLinks / reorderLink) write
+  // junction rows straight through raw knex inside relation-manager /
+  // add-remove-links — the data-layer beforeInsert/Update/Delete synced
+  // guards never fire on this path, so a mirror link column accepted link /
+  // unlink calls and silently corrupted junction pairs (manual syncs would
+  // keep the damage indefinitely). A synced (mirror / linked-shadow) host
+  // table rejects user-driven link writes with the same 422 family as the
+  // row-level guards. The sync engine is unaffected: its junction writes go
+  // through a dedicated raw-knex channel (recomputeJunctionPairs /
+  // cleanupJunctionOrphans) that never routes through these methods, so no
+  // bypass flag exists or is needed.
+  private assertLinkWriteAllowed(): void {
+    if (this.model?.synced) {
+      NcError.get(this.context).prohibitedSyncTableOperation(
+        {
+          modelName: this.model.title,
+          operation: 'update',
+        },
+        {
+          customMessage: `Link operations (link / unlink / reorder) are prohibited on synced table ${this.model.title} — manage the links in the source table`,
+        },
+      );
+    }
+  }
+
   async addChild({
     colId,
     rowId,
@@ -6622,6 +6648,10 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     if (onlyUpdateAuditLogs && colOptions.type !== RelationTypes.BELONGS_TO) {
       return;
     }
+
+    // [CE-EE] F09 P4-R1: after the audit-only early return — audit replays
+    // write no data and stay legal on synced tables
+    this.assertLinkWriteAllowed();
 
     const relationManager = await RelationManager.getRelationManager(
       this,
@@ -7015,6 +7045,9 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
       ![UITypes.LinkToAnotherRecord, UITypes.Links].includes(column.uidt)
     )
       NcError.get(this.context).fieldNotFound(colId);
+
+    // [CE-EE] F09 P4-R1: synced mirror / shadow tables reject unlink calls
+    this.assertLinkWriteAllowed();
 
     const relationManager = await RelationManager.getRelationManager(
       this,
@@ -8882,6 +8915,12 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     colId: string;
     rowId: string;
   }) {
+    // [CE-EE] F09 P4-R1: synced mirror / shadow tables reject link calls
+    // (nestedLink v2/v1/v3 channels all funnel here) — before the permission
+    // check on purpose: the synced guard is role-independent (even the owner
+    // may not write junction pairs; the engine is the only authority)
+    this.assertLinkWriteAllowed();
+
     await this.checkPermission({
       entity: PermissionEntity.FIELD,
       entityId: params.colId,
@@ -8899,6 +8938,9 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     colId: string;
     rowId: string;
   }) {
+    // [CE-EE] F09 P4-R1: see addLinks
+    this.assertLinkWriteAllowed();
+
     await this.checkPermission({
       entity: PermissionEntity.FIELD,
       entityId: params.colId,
@@ -8917,6 +8959,11 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     childId: string | number;
     before?: string | number | null;
   }) {
+    // [CE-EE] F09 P4-R1: reordering writes the junction nc_order — the sync
+    // engine owns junction rows wholesale (order is a declared non-goal,
+    // simplified tier 4), so synced mirrors reject it too
+    this.assertLinkWriteAllowed();
+
     await this.checkPermission({
       entity: PermissionEntity.FIELD,
       entityId: params.colId,

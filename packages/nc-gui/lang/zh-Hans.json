@@ -3700,7 +3700,8 @@
       "youCanOnlyUploadMaxLimitFilesAtATime": "每次只能上传 {limit} 个 {type} 文件",
       "youCanOnlyUploadMaxLimitFilesAtATimePlural": "每次只能上传 {limit} 个 {type} 文件",
       "variableKeyRequired": "需要变量键",
-      "variableKeyFormat": "密钥必须是大写字母、数字和下划线(例如WEBHOOK_URL)"
+      "variableKeyFormat": "密钥必须是大写字母、数字和下划线(例如WEBHOOK_URL)",
+      "syncPasteLinkUnsupported": "粘贴的共享视图无法同步关联字段：共享凭据仅暴露此单个视图，而同步关联字段需要读取相关表。请改用浏览模式创建同步以包含关联字段。"
     },
     "info": {
       "sourceViewRebindResync": "更改源视图会触发与新视图完全重新同步。",

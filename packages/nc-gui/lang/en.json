@@ -5310,7 +5310,8 @@
       "youCanOnlyUploadMaxLimitFilesAtATimePlural": "You can only upload {limit} {type} files at a time",
       "variableKeyRequired": "Variable key is required",
       "variableKeyFormat": "Key must be uppercase letters, numbers and underscores (e.g. WEBHOOK_URL)",
-      "requiredFieldNotEditable": "This required field isn’t editable, which may cause submission errors during form submission."
+      "requiredFieldNotEditable": "This required field isn’t editable, which may cause submission errors during form submission.",
+      "syncPasteLinkUnsupported": "Linked fields cannot be synced from a pasted shared view: the share credential only exposes this single view, while syncing linked fields reads the related tables. Create the sync in browse mode to include linked fields."
     },
     "info": {
       "sourceViewRebindResync": "Changing the source view triggers a full re-sync against the new view.",

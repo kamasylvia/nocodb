@@ -457,10 +457,12 @@ export class TableSyncProcessor {
 
     // [CE-EE] F09 P4: LTAR layers — shadow tables + junction RemoteId
     // pairing. Every full pass (full-create / manual resync / catch-up)
-    // recomputes all layers; the affectedIds incremental pass only cleans
-    // junction rows whose main-mirror row was hard-deleted (full pair
+    // recomputes all layers; the affectedIds incremental pass cleans junction
+    // rows anchored on main-mirror rows the source no longer has — both
+    // policies: hard-deleted (delete) and flagged (mark_deleted), matching
+    // the full-pass recompute semantics (P4-R1 lane4b M1). Full pair
     // recomputation waits for a link event or the next full pass — the
-    // sanctioned P4 simplification tier). Failures propagate so the sync
+    // sanctioned P4 simplification tier. Failures propagate so the sync
     // lands in status=error + last_error (visible + retriable via Sync now;
     // reruns are idempotent).
     if (linkFieldPairs.length) {
@@ -474,15 +476,27 @@ export class TableSyncProcessor {
       );
 
       if (isIncremental && affectedIds?.length) {
-        // incremental: only clean junction rows orphaned by hard-deleted
-        // main-mirror rows (delete policy); mark_deleted rows keep their
-        // pairs (the row still exists, just flagged)
-        if (pendingDeletes.length && junctionMappings.length) {
+        // [CE-EE] F09 P4-R1(lane4b M1): junction pairs mirror the source
+        // junction in BOTH tiers — main-mirror rows hard-deleted under the
+        // delete policy AND rows flagged under mark_deleted lose their pairs
+        // right here, exactly as the full-pass recompute would (the flagged
+        // row itself stays, per the row-level on_delete policy). Previously
+        // mark_deleted kept stale pairs until the next full pass — the same
+        // policy behaved differently per tier.
+        const orphanedMainPks = [
+          ...pendingDeletes.map((d) => String(d[pkKey])),
+          ...(markDeleted && remoteDeletedCol
+            ? pendingUpdates
+                .filter((u) => u[remoteDeletedCol.title] === true)
+                .map((u) => String(u[pkKey]))
+            : []),
+        ];
+        if (orphanedMainPks.length && junctionMappings.length) {
           await this.cleanupJunctionOrphans(
             context,
             destModel,
             junctionMappings,
-            pendingDeletes.map((d) => String(d[pkKey])),
+            orphanedMainPks,
           );
         }
       } else {

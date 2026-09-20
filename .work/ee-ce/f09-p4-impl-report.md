@@ -38,10 +38,11 @@
 - **分类**：`isMirrorableSourceColumn`（标量）保持不动；新增 `isSyncLinkColumn(uidt)`（Links/LinkToAnotherRecord）+ `loadSyncableLinks(sourceContext, sourceModel)`（async：逐列 `getColOptions` 过滤——mm 型 + fk_mm_model_id 存在 + RT 同 base/table/非自引用）。
 - **available 集合**（createSync 与 updateSync 共用）= 标量 mirrorable ∪ syncable links（按 title）。bt/hm/oo/自引用/跨 base link 不在集合 ⇒ 显式选中即 400（文案沿用 P1）。selectedFields:null ⇒ 全部（含全部 syncable links）。
 - **createSync 加腿**：主镜像建表（仅标量列）→ sync + main mapping + 标量列映射 → 逐 link 列：`ensureShadowForRelated`（首个引用时建 S + shadow mapping + shadow 列映射）→ `addMirrorLinkColumn`（columnAdd 建 dest link 列 + CE 原生 junction）→ `Model.updateSynced(J, true)` → junction mapping 行 + link 列映射行。失败清理路径（P2 原子性 catch）扩展：镜像 + 全部影子 + 全部 junction 逐一 tableDelete(forceDeleteSyncs)（best-effort）。
-- **updateSync 加/删**：
-  - 加腿 = `ensureShadowForRelated` + `addMirrorLinkColumn` + updateSynced(J) + mapping 行（同 create）。
-  - 删腿 = `removeSyncedLinkFieldDropsJunctionShadow` 级联：columnDelete(dest link 列， forceDeleteSystem+skipTrash) → tableDelete(J, forceDeleteSyncs) → 删 junction mapping 行 + link 列映射行 → **shadow 引用计数**：剩余 link 列映射解析 related id 集合，RT 不再被引用 ⇒ tableDelete(S) + 删 shadow mapping + shadow 列映射。
-- **sourceSchema**：columns 响应附加 link 列（`{id,title,uidt,link:true}`），向导零改动自然可选（UI 按 title 渲染）。
+- **updateSync 加/删**（**P4-R1 重写**，R1 四路 E1 收敛后）：
+  - 去留判定：drop 循环以「**主映射域**（`fk_table_sync_mapping_id === mainMapping.id`）」+「**desired 集合**」判定——标量按标量 desired，link 按 **desiredLinks**（selected_fields 数组过滤后的 syncable links；**null = 全部 syncable links**）。仍在 desiredLinks 中的 link 层不拆毁；真掉线的 link 才走 dropMirrorLinkColumn + dropShadowForRelated（引用计数按 desiredLinks 解析）。原实现按 desiredSrcIds（仅标量）判定，任何 selection PATCH 都会把已映射 link 全部误删（lane1/3b/4b/5 E1 同判）。
+  - 加腿 = `ensureShadowForRelated` + `addMirrorLinkColumn` + updateSynced(J) + mapping 行（同 create）；**shadows Map / takenTitles 提循环外**且以**既有 linked_shadow mappings 播种**——同 RT 第二条 link 共享 shadow（原实现每次迭代传全新 Map，双 shadow 会让引擎 `shadowRemoteToPkBySource` 按 source_table_id 键控 last-wins、junction 拿错表 pk，E1 修复后该雷即激活，故同批修）。
+  - **结构变更完成后 enqueue 一个 full-resync**（数据回填；lane1 E1④——原实现 PATCH 后静置 junction=0/shadow=0 等手动 resync）。keep-only PATCH（无增无删）不投。
+- **sourceSchema**：columns 响应附加 link 列（`{id,title,uidt,link:true}`），向导零改动自然可选（UI 按 title 渲染）。**P4-R1 修订**：paste 分支**不列** link 列（paste 凭据为单视图暴露面，link 同步仅 browse 模式，见 §10 族4）。
 
 ## 4. 引擎（processor）三模式交互
 
@@ -54,7 +55,7 @@
      - dest 侧：`destOpt` 同款解析 dest junction 两 FK 列；
      - desired = 源配对中两侧都能映射到 dest pk 的子集（源 junction 悬挂行——meta 源无 FK 级联——自然剔除）；existing = dest junction 全行按 (mainPk, shadowPk) 键控；
      - diff → 缺失批插（chunk 200）、多余逐对删（knex 直写）。
-- **incremental（affectedIds 非空，realtime scalar 事件）**：仅主表 pass；新增 **junction 孤儿清理**——pendingDeletes 落地的 dest main pk 集合，对每个 junction mapping 删 `mainSideFk IN (pks)` 的孤儿行（delete 策略；mark_deleted 行保留，配对仍有效）。shadow/junction 重算不做（等 link 事件或 catch-up 全量档）。
+- **incremental（affectedIds 非空，realtime scalar 事件）**：仅主表 pass；新增 **junction 孤儿清理**——pendingDeletes 落地的 dest main pk 集合，对每个 junction mapping 删 `mainSideFk IN (pks)` 的孤儿行。**P4-R1 修订（lane4b M1）**：mark_deleted 策略下被标 flag 的行同样清理其 junction 配对——junction 配对在**两档下均镜像源 junction**（行级 on_delete 策略只管镜像行本身：delete 删行 / mark_deleted 打标保行）。原实现 mark_deleted 增量档保留陈旧配对到下次 full pass，与 full 档行为不一致。shadow/junction 重算不做（等 link 事件或 catch-up 全量档）。
 - 防环：引擎写全走 skip_hooks:true / synced 守卫 / raw knex（junction），dest 侧永不触发 tap；source tap 仅匹配 mapping source_table_id（main/linked_shadow），junction mapping 无 source id 不匹配。
 
 ## 5. realtime tap（简化档落地）
@@ -96,7 +97,9 @@
 
 | 文件 | 内容 |
 |---|---|
-| `packages/nocodb/src/services/table-syncs.service.ts` | `isSyncLinkColumnUidt` 分类导出、`loadSyncableLinks`（mm + 同 base + 非自引用过滤）、`insertTableSyncMapping`、`setupMirrorSystemColumns`（P1 内联块抽出，main/shadow 共用）、`ensureShadowForRelated`、`addMirrorLinkColumn`（columnAdd 建 mm link + junction → `Model.updateSynced(junction,true)`）、`dropMirrorLinkColumn`（junction 级联）、`dropShadowForRelated`（引用计数）、createSync 三层构建 + 失败全量清理、updateSync 加/删级联（keptLinkRtIds 引用计数）、deleteSync role 排序级联（junction→shadow→main）、detachSync 三表全部转正、sourceSchema 双分支 link 列（`link:true`） |
+| `packages/nocodb/src/services/table-syncs.service.ts` | `isSyncLinkColumnUidt` 分类导出、`loadSyncableLinks`（mm + 同 base + 非自引用过滤）、`insertTableSyncMapping`、`setupMirrorSystemColumns`（P1 内联块抽出，main/shadow 共用）、`ensureShadowForRelated`、`addMirrorLinkColumn`（columnAdd 建 mm link + junction → `Model.updateSynced(junction,true)`）、`dropMirrorLinkColumn`（junction 级联）、`dropShadowForRelated`（引用计数）、createSync 三层构建 + 失败全量清理、updateSync 加/删级联、deleteSync role 排序级联（junction→shadow→main）、detachSync 三表全部转正、sourceSchema 双分支 link 列（`link:true`） |
+
+> **P4-R1 勘误**：上表原稿写 updateSync 级联为「keptLinkRtIds 引用计数」——R1 实测该逻辑为死代码（keptLinkRtIds 守卫条件对 link 映射恒 continue，集合恒空），updateSync 实际行为是「任何 selection PATCH 全量拆毁已映射 link」。已在 P4-R1 修复批重写（见 §10 族1/族2）。
 | `packages/nocodb/src/modules/jobs/jobs/table-sync/table-sync.processor.ts` | fieldMap 排除 link 映射、linkFieldPairs 提取、`recomputeLinkLayers`（full pass：main remoteToPk 重扫 + shadow pass + junction recompute）、`syncShadowTable`（upsert+sweep 同构 + 返回 post-pass map）、`recomputeJunctionPairs`（源 junction 分页读 → desired/Existing diff → chunk 插 + 逐对删，knex 直写）、`cleanupJunctionOrphans`（incremental 删除后 junction 孤儿清理）、`scanDestRemoteMap` |
 | `packages/nocodb/src/helpers/table-sync-realtime.ts` | `'link'` 事件类型、role IN (main, linked_shadow) + role 透出、`claimAndEnqueue` mode 参数（main scalar=incremental+ids；link 事件/shadow=full-resync） |
 | `packages/nocodb/src/db/BaseModelSqlv2.ts` | `updateLastModified` 单点 tap（全仓 link 变更汇聚点；synced 守卫 + 吞错） |
@@ -130,3 +133,56 @@
 6. link order 两个 junction Order 列值不镜像（配对同步、排序不同步）。
 7. junction 表在树/表列表默认隐藏（CE `mm:true` 行为），`includeM2M=true` 可见；synced 守卫已断言生效。
 8. realtime dispatch role 匹配无单测（Noco.ncMeta.knex mock 厚）；活体 probe 已验证链路。
+
+## 10. P4-R1 修复批记录（2026-09-20）
+
+> 输入 = R1 四路 error 报告收敛的四大族（lane1 / lane3b / lane4b / lane5），全部必修项 + 2 个 minor 顺手项。全部改动 `// [CE-EE] F09 P4-R1` 标记。
+
+### 族↔修复映射
+
+| 族 | 报告来源 | 修复 |
+|---|---|---|
+| **1. updateSync link 级联**（4 路同判 E1/E3） | lane1 E1、lane3b E3、lane4b E1、lane5 E1 | `updateSync` 重写：drop 循环限定主映射域（`fk_table_sync_mapping_id===mainMapping.id`，顺带修 lane4b E1 子效应「shadow 列身份映射被静默清除」）；link 映射去留按 **desiredLinkSrcIds**（selected_fields 解析出的 desiredLinks）判定——keep-link PATCH 不再拆毁三层；`keptLinkRtIds` 改由 desiredLinks 直接解析（原死代码）；null=全字段**含全部 syncable links**（既有 link 保留 + 未映射 link 补齐）；真掉线 link 才走 dropMirrorLinkColumn + dropShadowForRelated |
+| **2. 双 shadow**（lane3b M1、lane4b M2、lane5 M1） | 同上 M 族 | 加腿循环的 `shadows: Map` / `takenTitles` 提出循环，且以**既有 linked_shadow mappings 播种**（查 dest model 存活才复用）——同 RT 第二条 link 复用 shadow，引擎 `shadowRemoteToPkBySource` 键冲突随共享消失 |
+| **3. LTAR 链接通道守卫**（lane3b E1、lane4b E2） | 同上 | `BaseModelSqlv2` 新增 `assertLinkWriteAllowed`（422 同族 `ERR_SYNC_TABLE_OPERATION_PROHIBITED` + link 专属 customMessage），挂 **addChild / removeChild / addLinks / removeLinks / reorderLink** 五入口（`nestedLink/nestedUnlink/v1-v3 alias/linkSwap/ltar-cols-updater` 全部汇入）。addLinks/removeLinks/reorderLink 在 checkPermission **之前**（守卫与角色无关）；addChild 在 onlyUpdateAuditLogs 早退之后（audit replay 零写数据，放行）。引擎不受影响：junction 写走专用 raw-knex 通道（recomputeJunctionPairs / cleanupJunctionOrphans），不经这五个方法，无需 bypass 标志 |
+| **4. paste+link 升权**（lane3b E2，裁定=拒收） | 同上 | createSync 前置校验：`isPaste && selectedLinks.length ⇒ 400`（消息说明 paste 凭据仅单视图暴露面、link 同步仅 browse 模式）；paste 分支 sourceSchema **不再列** link 列（不留 UI 死胡同）。文案进 i18n：`msg.warning.syncPasteLinkUnsupported`（en.json + zh-Hans.json） |
+| **5. deleteSync 僵尸**（lane3b M3） | 同上 | 主镜像 tableDelete 失败且表仍存活 → 原错误上抛、**不删 sync 行**（保 detach/重试出口）；表已不存在（out-of-band 删除）→ 视为成功继续；junction/shadow 仍 best-effort |
+| **6. mark_deleted 两档一致性**（lane4b M1） | 同上 | 选**实现**：incremental 档 mark_deleted 被 flag 的行同步清理 junction 配对（`orphanedMainPks` = pendingDeletes ∪ flagged）——两档统一语义「**junction 配对恒镜像源 junction；行级 on_delete 策略只管镜像行**」。§4 声明同步修订 |
+| 附带（lane5 观察） | createSync 失败清理顺序 | `createdDestTableIds` 逆序删除（junction→shadow→mirror），PG 下 junction FK 不再挡 best-effort 清理 |
+
+### 改动文件
+
+| 文件 | 内容 |
+|---|---|
+| `packages/nocodb/src/services/table-syncs.service.ts` | 族1/2/4/5：updateSync 级联重写 + shadows 播种共享 + 结构变更后 enqueue full-resync + paste+link 400 + paste sourceSchema 裁剪 + deleteSync 主镜像守卫 + createSync 清理逆序 |
+| `packages/nocodb/src/db/BaseModelSqlv2.ts` | 族3：`assertLinkWriteAllowed` + 五入口挂守卫 |
+| `packages/nocodb/src/modules/jobs/jobs/table-sync/table-sync.processor.ts` | 族6：incremental mark_deleted 配对清理对齐 full pass（含注释修订） |
+| `packages/nc-gui/lang/en.json` / `zh-Hans.json` | 族4：`msg.warning.syncPasteLinkUnsupported`（en + zh-Hans） |
+| `packages/nocodb/src/services/table-syncs.Fork.spec.ts` | 13 个 R1 回归用例（见下） |
+
+### 回归用例（table-syncs.Fork.spec.ts，47→60）
+
+- **P4-R1 updateSync link cascade**（4）：keep-link PATCH 不拆毁（无 columnDelete/tableDelete/tableCreate/insertColumnMappings、不投 resync）；null PATCH 含既有 links；真掉线 link 全级联 + 投 full-resync + sync 行保留；同 RT 双 link 加腿共享既有 shadow（无 tableCreate、双 junction、updateSynced×2、投 resync）。
+- **P4-R1 paste+link rejection**（2）：paste createSync 选 link 400（消息含 browse mode、零 job）；paste sourceSchema 不列 link 列。
+- **P4-R1 deleteSync zombie guard**（2）：主镜像删除失败 → 原错误上抛 + sync 行保留；主镜像已不存在/删除成功 → sync 行删除。
+- **P4-R1 LTAR link-channel guard**（4）：addLinks 422（先于权限检查）；addChild 422；audit-only replay 放行；普通表不触发。
+- **P4-R1 mark_deleted junction pairs**（1）：incremental mark_deleted flag 行的 junction 配对同步清理（bulkDelete 不发生 + whereIn(d_main, [flagged pk])）。
+
+### 质量门与活体
+
+- `npx tsc --noEmit`：exit 0。
+- `npx jest --testPathPattern 'Fork'`：**60/60**（3 suites；P1–P3 44 + P4 3 + R1 13）。
+- 活体（:8080 重建 dist → rsync ~/.nocodb-run → 重启，nocodb-dev，`.work/ee-ce/f09p4r1-fix-selftest.sh` **19 PASS / 0 FAIL**，测试 base 全清）：
+  - **A keep-link PATCH**：mirror Ns 列 id 不变、mappings=3、junction 表在且数据未动、无结构变更不投 resync（旧版全拆）。
+  - **B 双 link 加腿**：PATCH 后立即 shadow=1（旧版翻倍）junction=2；full-resync 自动跑完（status active），双 junction 配对 1/1 回填（旧版静置 0），mirror Ns+Ns2 并存。
+  - **C 镜像 link 写守卫**：注入 422（旧版 201）、unlink 422（旧版 200），错误码 `ERR_SYNC_TABLE_OPERATION_PROHIBITED`。
+  - **D paste+link**：createSync 400 + 消息含 browse-mode 说明；sourceSchema paste 分支不列 link；paste 纯标量 200 不受误伤。
+  - **E null PATCH**：补齐后建的新 link（Ns2）+ 保留既有 Ns，shadow 仍共享（main+1S+2J）。
+- 后端 dev server 已带 R1 修复批构建运行（pid 见 /tmp/nocodb-internal.log）。
+
+### 遗留（新增/更新，均不阻塞）
+
+1. §9 原 8 条全部维持（realtime 风暴简化档、无 LMT 早退、v3 attachment、shadow 列漂移、bt/hm/oo 裁剪、order 不同步、junction 隐藏、dispatch 无单测）。
+2. **旧行为自愈路径**：R1 之前被旧 updateSync 拆毁的 sync（若仍在）可用「PATCH 移除该 link → PATCH 加回 + resync」重建三层；新代码不再产生该损伤。
+3. 源 link 列被删除后其残留 mapping 的 junction mapping 行成为惰性孤儿（引擎因 srcCol 缺失自动跳过；P4 前既有边角，未在本轮处理）。
+4. lane3b M2（columnAdd 对 synced 表无守卫，P1 起既有）未在本轮范围，维持已知裁剪记录。
