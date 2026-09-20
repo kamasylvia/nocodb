@@ -2,8 +2,8 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-20 08:5x（**F09 P4 实现批完成**：LTAR 三层实现 + 质量门全过 + 活体 12 步 ALL PASS + realtime/detach/标量回归 probe 全过；待会审闭环）
-- LOCK: active（F09 P4 实现完成，待派 5 路会审）
+- 更新时间: 2026-09-20 09:4x（**F09 P4 R1 会审在飞**：实现批 43357b7c77 已 dist 热修 pid 29915；omp + 3 subagent 补位 + 1 subagent；kilo/reasonix/pi clinepass 凭据面失效 E3×3）
+- LOCK: active（F09 P4 会审阶段 R1 在飞）
 
 ## F09 P4 实现批完成（2026-09-20 08:5x，待会审）
 
