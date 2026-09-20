@@ -2,8 +2,15 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-20 09:4x（**F09 P4 R1 会审在飞**：实现批 43357b7c77 已 dist 热修 pid 29915；omp + 3 subagent 补位 + 1 subagent；kilo/reasonix/pi clinepass 凭据面失效 E3×3）
-- LOCK: active（F09 P4 会审阶段 R1 在飞）
+- 更新时间: 2026-09-20 10:3x（**用户指令中止任务与巡检**：整点 automation 已删除；P4-R2 五路会审中止（~2min，零报告））
+- LOCK: idle（**任务中止挂起**——恢复时按本文件 P4 节续推：R1 修复批 5368ef1366 已落 main 待 R2 回归审）
+
+## 中止状态（2026-09-20 10:3x，用户指令「中止任务和巡检」）
+
+- 巡检 automation-44d2d94c 已删除（正本 GOAL-STATE-automation-prompt.txt 保留，恢复时重建）
+- P4-R2 五路会审中止（零报告产出）；P4 修复批 5368ef1366 已在 main（R1 五 error 族修复 + 13 回归用例），**未经 R2 回归审**
+- 恢复路径：热核 dist 与 HEAD 一致 → 派 P4-R2（r2-p4-lane-prompt.md 在库）→ 3 连击 → P4 pass 收官
+- 待用户处置：clinepass 订阅/key 失效（外部阵容瘫痪根因）；agents 仓未提交项（.env 删除/reasonix config/1mcp/README）
 
 ## F09 P4 实现批完成（2026-09-20 08:5x，待会审）
 
