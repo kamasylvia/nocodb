@@ -553,3 +553,357 @@ describe('[CE-EE] F09 engine job (full copy)', () => {
     expect(jobsService.add).not.toHaveBeenCalled();
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// [CE-EE] F09 P4: LTAR link layers — LinkedShadow pass + junction RemoteId
+// pair recomputation + junction orphan cleanup on incremental deletes
+// ──────────────────────────────────────────────────────────────────────────
+describe('[CE-EE] F09 P4 engine (link layers)', () => {
+  const makeBaseModel = (rows: any[]) => ({
+    list: jest.fn().mockImplementation((args: any = {}) => {
+      const where = typeof args?.where === 'string' ? args.where : '';
+      const m = where.match(/\(RemoteId,eq,([^)]+)\)/);
+      if (m) {
+        return Promise.resolve({
+          list: rows.filter((r) => String(r.RemoteId) === m[1]),
+        });
+      }
+      return Promise.resolve({ list: rows });
+    }),
+    bulkInsert: jest.fn().mockResolvedValue(undefined),
+    bulkUpdate: jest.fn().mockResolvedValue(undefined),
+    bulkDelete: jest.fn().mockResolvedValue(undefined),
+    readByPk: jest.fn().mockResolvedValue(null),
+    extractPksValues: (d: any) => d?.Id ?? null,
+  });
+
+  /** knex-style chainable query builder recorder for junction writes */
+  const makeJunctionBm = (rows: any[]) => {
+    const qbs: any[] = [];
+    const bm: any = {
+      qbs,
+      getTnPath: jest.fn(() => 'junction_tn'),
+      dbDriver: jest.fn(() => {
+        const qb: any = {};
+        for (const m of ['select', 'where', 'whereIn', 'del', 'insert', 'limit', 'offset', 'first']) {
+          qb[m] = jest.fn().mockReturnValue(qb);
+        }
+        qbs.push(qb);
+        return qb;
+      }),
+      // selects and writes both funnel through execAndParse — writes ignore
+      // the return value, selects read the junction rows
+      execAndParse: jest.fn().mockResolvedValue(rows),
+    };
+    return bm;
+  };
+
+  const mmOpt = (
+    mmModelId: string,
+    relatedModelId: string,
+    mainSideColName: string,
+    shadowSideColName: string,
+    junctionModel: any,
+  ) => ({
+    type: 'mm',
+    fk_mm_model_id: mmModelId,
+    fk_related_model_id: relatedModelId,
+    getMMModel: jest.fn().mockResolvedValue(junctionModel),
+    getMMChildColumn: jest
+      .fn()
+      .mockResolvedValue({ column_name: mainSideColName }),
+    getMMParentColumn: jest
+      .fn()
+      .mockResolvedValue({ column_name: shadowSideColName }),
+  });
+
+  const asModel = (id: string, columns: any[]) => ({
+    id,
+    deleted: false,
+    source_id: 's1',
+    title: id,
+    columns,
+    getColumns: jest.fn(),
+  });
+
+  it('full pass mirrors the linked table into its shadow and rebuilds junction RemoteId pairs', async () => {
+    // main source (T) rows; main mirror (M) rows already synced; row 3 is
+    // new so the main pass takes the insert path (payload assertions)
+    const srcBaseModel = makeBaseModel([
+      { Id: 1, Title: 'row1', Qty: 1 },
+      { Id: 2, Title: 'row2', Qty: 2 },
+      { Id: 3, Title: 'row3' },
+    ]);
+    const destBaseModel = makeBaseModel([
+      { Id: 11, Title: 'row1', Qty: 1, RemoteId: '1' },
+      { Id: 12, Title: 'row2', Qty: 2, RemoteId: '2' },
+    ]);
+    // linked table (RT) + its shadow (S) — rt row 101 already mirrored so
+    // the shadow pass takes the update path
+    const rtBaseModel = makeBaseModel([{ Id: 101, Title: 'rt1' }]);
+    const shadowBaseModel = makeBaseModel([
+      { Id: 21, Title: 'rt1', RemoteId: '101' },
+    ]);
+    // source junction (T×RT pairs) + dest junction (M×S pairs)
+    const srcJunctionBm = makeJunctionBm([
+      { __main: '1', __shadow: '101' },
+      { __main: '2', __shadow: '102' }, // rt row 102 not mirrored yet → skipped
+    ]);
+    const destJunctionBm = makeJunctionBm([
+      { __main: '11', __shadow: '21' }, // existing pair stays
+      { __main: '19', __shadow: '21' }, // source dropped it → removed
+    ]);
+
+    const srcCols = [
+      { id: 'c1', title: 'Title', column_name: 'title' },
+      { id: 'cl1', title: 'RTs', column_name: 'rts', uidt: 'Links', getColOptions: async () => srcLinkOpt },
+    ];
+    const destCols = [
+      { id: 'd0', title: 'Id', column_name: 'id', pk: true },
+      { id: 'd1', title: 'Title', column_name: 'title' },
+      { id: 'd3', title: 'RemoteId', column_name: 'remoteid' },
+      { id: 'd4', title: 'RemoteDeleted', column_name: 'remotedeleted' },
+      { id: 'dl1', title: 'RTs', column_name: 'rts', uidt: 'Links', getColOptions: async () => destLinkOpt },
+    ];
+    const rtModel = asModel('t_rt', [
+      { id: 'r1', title: 'Title', column_name: 'title' },
+    ]);
+    const shadowModel = asModel('t_shadow', [
+      { id: 's0', title: 'Id', column_name: 'id', pk: true },
+      { id: 's1', title: 'Title', column_name: 'title' },
+      { id: 's3', title: 'RemoteId', column_name: 'remoteid' },
+      { id: 's4', title: 'RemoteDeleted', column_name: 'remotedeleted' },
+    ]);
+    const srcJuncModel = asModel('src_junc', []);
+    const destJuncModel = asModel('dest_junc', []);
+    const srcLinkOpt = mmOpt('src_junc', 't_rt', 't_src_id', 't_rt_id', srcJuncModel);
+    const destLinkOpt = mmOpt('dest_junc', 't_shadow', 'd_main', 'd_shadow', destJuncModel);
+
+    (TableSync.getAny as any).mockResolvedValue(syncRow());
+    (TableSync.getMainMapping as any).mockResolvedValue({
+      source_workspace_id: 'ws1',
+      source_base_id: 'src1',
+      source_table_id: 't_src',
+      dest_table_id: 't_dest',
+    });
+    (TableSync.listMappings as any).mockResolvedValue([
+      { id: 'map_main', role: 'main', source_table_id: 't_src', dest_table_id: 't_dest' },
+      { id: 'map_shadow', role: 'linked_shadow', source_table_id: 't_rt', dest_table_id: 't_shadow' },
+      { id: 'map_junc', role: 'junction', dest_table_id: 'dest_junc' },
+    ]);
+    (TableSync.listColumnMappings as any).mockResolvedValue([
+      { source_column_id: 'c1', dest_column_id: 'd1', fk_table_sync_mapping_id: 'map_main', source_table_id: 't_src' },
+      { source_column_id: 'cl1', dest_column_id: 'dl1', fk_table_sync_mapping_id: 'map_main', source_table_id: 't_src' },
+      { source_column_id: 'r1', dest_column_id: 's1', fk_table_sync_mapping_id: 'map_shadow', source_table_id: 't_rt' },
+    ]);
+    (TableSync.update as any).mockResolvedValue(null);
+    (Model.get as any).mockImplementation(async (_ctx, id) => {
+      if (id === 't_src') return asModel('t_src', srcCols);
+      if (id === 't_dest') return asModel('t_dest', destCols);
+      if (id === 't_rt') return rtModel;
+      if (id === 't_shadow') return shadowModel;
+      return null;
+    });
+    (Model.getBaseModelSQL as any).mockImplementation(async (_ctx, args) => {
+      switch (args.model.id) {
+        case 't_src': return srcBaseModel;
+        case 't_dest': return destBaseModel;
+        case 't_rt': return rtBaseModel;
+        case 't_shadow': return shadowBaseModel;
+        case 'src_junc': return srcJunctionBm;
+        case 'dest_junc': return destJunctionBm;
+        default: return null;
+      }
+    });
+
+    const processor = new TableSyncProcessor();
+    await processor.job({ data: { syncId: 'sync1', req } } as any);
+
+    // shadow pass: rt row 101 already mirrored → in-place update via the
+    // whitelist channel, keyed by RemoteId
+    expect(shadowBaseModel.bulkUpdate).toHaveBeenCalledTimes(1);
+    const [shadowUpdated] = shadowBaseModel.bulkUpdate.mock.calls[0];
+    expect(shadowUpdated).toEqual([
+      expect.objectContaining({ Id: 21, Title: 'rt1', RemoteId: '101' }),
+    ]);
+
+    // link column never enters the scalar payload of the main mirror
+    // (row 3 took the main insert path)
+    expect(destBaseModel.bulkInsert).toHaveBeenCalledTimes(1);
+    const [mainInserted] = destBaseModel.bulkInsert.mock.calls[0];
+    expect(mainInserted).toEqual([
+      expect.objectContaining({ Title: 'row3', RemoteId: '3' }),
+    ]);
+    expect(mainInserted[0].RTs).toBeUndefined();
+
+    // junction recompute: rt row 102 has no shadow row → its pair is
+    // SKIPPED (dangling source pair); the existing pair ('11'|'21') stays;
+    // the source-dropped pair ('19'|'21') is removed
+    const inserts = destJunctionBm.qbs.filter((q) => q.insert.mock.calls.length);
+    expect(inserts).toHaveLength(0);
+    const dels = destJunctionBm.qbs.filter((q) => q.del.mock.calls.length);
+    expect(dels).toHaveLength(1);
+    expect(dels[0].where).toHaveBeenCalledWith({ d_main: '19', d_shadow: '21' });
+
+    expect(TableSync.update).toHaveBeenCalledWith(
+      expect.anything(),
+      'dest1',
+      'sync1',
+      expect.objectContaining({ status: TableSyncStatus.Active }),
+    );
+  });
+
+  it('full pass inserts junction rows when the shadow gained the missing side', async () => {
+    const srcBaseModel = makeBaseModel([{ Id: 1, Title: 'row1' }]);
+    const destBaseModel = makeBaseModel([{ Id: 11, Title: 'row1', RemoteId: '1' }]);
+    const rtBaseModel = makeBaseModel([{ Id: 101, Title: 'rt1' }]);
+    // shadow starts empty and the mock must reflect the bulkInsert so the
+    // post-pass RemoteId scan sees the new row (the real engine re-reads)
+    const shadowRows: any[] = [];
+    const shadowBaseModel = makeBaseModel(shadowRows);
+    shadowBaseModel.bulkInsert.mockImplementation(async (rows: any[]) => {
+      rows.forEach((r, i) => shadowRows.push({ Id: 30 + i, ...r }));
+    });
+    const srcJunctionBm = makeJunctionBm([{ __main: '1', __shadow: '101' }]);
+    const destJunctionBm = makeJunctionBm([]);
+
+    const srcCols = [
+      { id: 'cl1', title: 'RTs', column_name: 'rts', uidt: 'Links', getColOptions: async () => srcLinkOpt },
+    ];
+    const destCols = [
+      { id: 'd0', title: 'Id', column_name: 'id', pk: true },
+      { id: 'd3', title: 'RemoteId', column_name: 'remoteid' },
+      { id: 'd4', title: 'RemoteDeleted', column_name: 'remotedeleted' },
+      { id: 'dl1', title: 'RTs', column_name: 'rts', uidt: 'Links', getColOptions: async () => destLinkOpt },
+    ];
+    const srcJuncModel = asModel('src_junc', []);
+    const destJuncModel = asModel('dest_junc', []);
+    const srcLinkOpt = mmOpt('src_junc', 't_rt', 't_src_id', 't_rt_id', srcJuncModel);
+    const destLinkOpt = mmOpt('dest_junc', 't_shadow', 'd_main', 'd_shadow', destJuncModel);
+
+    (TableSync.getAny as any).mockResolvedValue(syncRow());
+    (TableSync.getMainMapping as any).mockResolvedValue({
+      source_workspace_id: 'ws1',
+      source_base_id: 'src1',
+      source_table_id: 't_src',
+      dest_table_id: 't_dest',
+    });
+    (TableSync.listMappings as any).mockResolvedValue([
+      { id: 'map_main', role: 'main', source_table_id: 't_src', dest_table_id: 't_dest' },
+      { id: 'map_shadow', role: 'linked_shadow', source_table_id: 't_rt', dest_table_id: 't_shadow' },
+      { id: 'map_junc', role: 'junction', dest_table_id: 'dest_junc' },
+    ]);
+    (TableSync.listColumnMappings as any).mockResolvedValue([
+      { source_column_id: 'cl1', dest_column_id: 'dl1', fk_table_sync_mapping_id: 'map_main', source_table_id: 't_src' },
+      { source_column_id: 'r1', dest_column_id: 's1', fk_table_sync_mapping_id: 'map_shadow', source_table_id: 't_rt' },
+    ]);
+    (TableSync.update as any).mockResolvedValue(null);
+    (Model.get as any).mockImplementation(async (_ctx, id) => {
+      if (id === 't_src') return asModel('t_src', srcCols);
+      if (id === 't_dest') return asModel('t_dest', destCols);
+      if (id === 't_rt') return asModel('t_rt', [{ id: 'r1', title: 'Title', column_name: 'title' }]);
+      if (id === 't_shadow') return asModel('t_shadow', [
+        { id: 's0', title: 'Id', column_name: 'id', pk: true },
+        { id: 's1', title: 'Title', column_name: 'title' },
+        { id: 's3', title: 'RemoteId', column_name: 'remoteid' },
+        { id: 's4', title: 'RemoteDeleted', column_name: 'remotedeleted' },
+      ]);
+      return null;
+    });
+    (Model.getBaseModelSQL as any).mockImplementation(async (_ctx, args) => {
+      switch (args.model.id) {
+        case 't_src': return srcBaseModel;
+        case 't_dest': return destBaseModel;
+        case 't_rt': return rtBaseModel;
+        case 't_shadow': return shadowBaseModel;
+        case 'src_junc': return srcJunctionBm;
+        case 'dest_junc': return destJunctionBm;
+        default: return null;
+      }
+    });
+
+    const processor = new TableSyncProcessor();
+    await processor.job({ data: { syncId: 'sync1', req } } as any);
+
+    // shadow row inserted first, then the junction pair lands
+    expect(shadowBaseModel.bulkInsert).toHaveBeenCalledTimes(1);
+    const inserts = destJunctionBm.qbs.filter((q) => q.insert.mock.calls.length);
+    expect(inserts).toHaveLength(1);
+    // '30' is the mock's generated pk for the inserted shadow row — the pair
+    // is keyed by the DEST pks (mirror row 11 ↔ shadow row of rt 101)
+    expect(inserts[0].insert).toHaveBeenCalledWith([
+      { d_main: '11', d_shadow: '30' },
+    ]);
+  });
+
+  it('incremental deletes clean the junction rows referencing the removed mirror rows', async () => {
+    const srcBaseModel = makeBaseModel([]);
+    const destBaseModel = makeBaseModel([
+      { Id: 11, Title: 'gone', RemoteId: '77' },
+    ]);
+    const srcJunctionBm = makeJunctionBm([]);
+    const destJunctionBm = makeJunctionBm([]);
+
+    const srcCols = [
+      { id: 'cl1', title: 'RTs', column_name: 'rts', uidt: 'Links', getColOptions: async () => srcLinkOpt },
+    ];
+    const destCols = [
+      { id: 'd0', title: 'Id', column_name: 'id', pk: true },
+      { id: 'd3', title: 'RemoteId', column_name: 'remoteid' },
+      { id: 'd4', title: 'RemoteDeleted', column_name: 'remotedeleted' },
+      { id: 'dl1', title: 'RTs', column_name: 'rts', uidt: 'Links', getColOptions: async () => destLinkOpt },
+    ];
+    const srcJuncModel = asModel('src_junc', []);
+    const destJuncModel = asModel('dest_junc', []);
+    const srcLinkOpt = mmOpt('src_junc', 't_rt', 't_src_id', 't_rt_id', srcJuncModel);
+    const destLinkOpt = mmOpt('dest_junc', 't_shadow', 'd_main', 'd_shadow', destJuncModel);
+
+    (TableSync.getAny as any).mockResolvedValue(syncRow());
+    (TableSync.getMainMapping as any).mockResolvedValue({
+      source_workspace_id: 'ws1',
+      source_base_id: 'src1',
+      source_table_id: 't_src',
+      dest_table_id: 't_dest',
+    });
+    (TableSync.listMappings as any).mockResolvedValue([
+      { id: 'map_main', role: 'main', source_table_id: 't_src', dest_table_id: 't_dest' },
+      { id: 'map_junc', role: 'junction', dest_table_id: 'dest_junc' },
+    ]);
+    (TableSync.listColumnMappings as any).mockResolvedValue([
+      { source_column_id: 'cl1', dest_column_id: 'dl1', fk_table_sync_mapping_id: 'map_main', source_table_id: 't_src' },
+    ]);
+    (TableSync.update as any).mockResolvedValue(null);
+    (Model.get as any).mockImplementation(async (_ctx, id) => {
+      if (id === 't_src') return asModel('t_src', srcCols);
+      if (id === 't_dest') return asModel('t_dest', destCols);
+      return null;
+    });
+    (Model.getBaseModelSQL as any).mockImplementation(async (_ctx, args) => {
+      switch (args.model.id) {
+        case 't_src': return srcBaseModel;
+        case 't_dest': return destBaseModel;
+        case 'src_junc': return srcJunctionBm;
+        case 'dest_junc': return destJunctionBm;
+        default: return null;
+      }
+    });
+    destBaseModel.readByPk.mockResolvedValue(null); // id 77 vanished
+
+    const processor = new TableSyncProcessor();
+    await processor.job({
+      data: {
+        syncId: 'sync1',
+        req,
+        mode: 'incremental',
+        affectedIdsBySource: { t_src: ['77'] },
+      },
+    } as any);
+
+    // mirror row deleted (delete policy)…
+    expect(destBaseModel.bulkDelete).toHaveBeenCalledTimes(1);
+    // …and the junction rows referencing dest pk 11 are swept
+    const dels = destJunctionBm.qbs.filter((q) => q.del.mock.calls.length);
+    expect(dels).toHaveLength(1);
+    expect(dels[0].whereIn).toHaveBeenCalledWith('d_main', ['11']);
+  });
+});

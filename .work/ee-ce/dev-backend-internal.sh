@@ -17,6 +17,11 @@ case "${1:-start}" in
   start|*)
     pgrep -f "$RUN/packages/nocodb/dist/main.js" >/dev/null && { echo "already running"; exit 0; }
     set -a; . "$HOME/.zcode/.env"; set +a
+    # [CE-EE] 2026-09-20: INFISICAL_PROJECT_ID_KDL 自 ~/.zcode/.env 迁至
+    # ~/.agents/config.toml [infisical] 段（全局 AGENTS §2.3.0）——缺则补载
+    if [ -z "${INFISICAL_PROJECT_ID_KDL:-}" ] && [ -f "$HOME/.agents/config.toml" ]; then
+      eval "$(awk '/^\[infisical\]/{f=1;next}/^\[/{f=0}f' "$HOME/.agents/config.toml" | sed 's/[[:space:]]*#.*//; s/[[:space:]]*=[[:space:]]*/=/; /^[[:space:]]*$/d')"
+    fi
     export INFISICAL_DOMAIN="$INFISICAL_URL"
     TOKEN=$(infisical login --method universal-auth --client-id "$INFISICAL_CLIENT_ID" --client-secret "$INFISICAL_CLIENT_SECRET" --plain 2>/dev/null)
     eval $(infisical secrets --token "$TOKEN" --projectId "$INFISICAL_PROJECT_ID_KDL" --env "$INFISICAL_ENVIRONMENT" --recursive --plain 2>/dev/null | grep -E "^DB_(USER|PASSWORD|PORT)=" | sed 's/^/export /')

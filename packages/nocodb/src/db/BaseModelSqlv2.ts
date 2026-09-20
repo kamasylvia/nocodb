@@ -9153,6 +9153,20 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
     const normalizedRowIds = (Array.isArray(rowIds) ? rowIds : [rowIds])
       .filter((id) => id != null && id !== '')
       .map((id) => String(id));
+    // [CE-EE] F09 P4: link-structure change tap for Table Sync. This method
+    // is the single funnel every LTAR pair mutation goes through (relation
+    // manager addChild/removeChild, add-remove-links batch paths, nested
+    // insert/update link handling, row delete touching linked rows) — a
+    // 'link' event dispatches a full table-sync resync (junction pair
+    // recomputation lives in the full pass). Mirror tables (synced=true)
+    // never tap — same loop protection as the after* taps below.
+    try {
+      if (model && !model.synced && normalizedRowIds.length) {
+        tapTableSyncRealtime(this.context, model.id, 'link', normalizedRowIds);
+      }
+    } catch {
+      /* realtime sync must never break the write path */
+    }
     if (normalizedRowIds.length) {
       Noco.eventEmitter.emit(AppEvents.ROW_LMT_TOUCHED, {
         context: { ...this.context, cache: false, cacheMap: undefined },

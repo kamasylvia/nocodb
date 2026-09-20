@@ -207,19 +207,33 @@ export default class TableSync {
     return (mapping as TableSyncMappingType) || null;
   }
 
-  /** source_column_id → dest_column_id identity of this sync's mirror */
+  /** source_column_id → dest_column_id identity of this sync's mirror.
+   *  [CE-EE] F09 P4: also returns fk_table_sync_mapping_id + source_table_id
+   *  so the engine can partition column mappings per table mapping (main vs
+   *  linked_shadow) — the existing two-key shape is a subset, so previous
+   *  callers are unaffected. */
   public static async listColumnMappings(
     context: NcContext,
     baseId: string,
     tableSyncId: string,
     ncMeta = Noco.ncMeta,
   ): Promise<
-    { source_column_id: string; dest_column_id: string }[]
+    {
+      source_column_id: string;
+      dest_column_id: string;
+      fk_table_sync_mapping_id: string;
+      source_table_id: string;
+    }[]
   > {
     const rows = await ncMeta
       .knex(MetaTable.TABLE_SYNC_COLUMN_MAPPINGS)
       .where({ fk_table_sync_id: tableSyncId, base_id: baseId })
-      .select('source_column_id', 'dest_column_id');
+      .select(
+        'source_column_id',
+        'dest_column_id',
+        'fk_table_sync_mapping_id',
+        'source_table_id',
+      );
     return rows;
   }
 

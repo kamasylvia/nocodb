@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import NocoCache from '~/cache/NocoCache';
 import {
-
   isVirtualCol,
   ProjectRoles,
+  RelationTypes,
   UITypes,
   ViewTypes,
   TableSyncInputMode,
@@ -19,6 +19,7 @@ import type {
 import type { TableSyncJobMode } from '~/interface/Jobs';
 import { JobTypes } from '~/interface/Jobs';
 import type { IJobsService } from '~/modules/jobs/jobs-service.interface';
+import type { Column, LinkToAnotherRecordColumn } from '~/models';
 import Base from '~/models/Base';
 import BaseUser from '~/models/BaseUser';
 import Model from '~/models/Model';
@@ -88,6 +89,18 @@ export function isMirrorableSourceColumn(col: {
   }
   if (col.pk) return false;
   return !EXCLUDED_SOURCE_UIDTS.includes(col.uidt as UITypes);
+}
+
+const SYNC_LINK_UIDTS: (UITypes | string)[] = [
+  UITypes.Links,
+  UITypes.LinkToAnotherRecord,
+];
+
+/** [CE-EE] F09 P4: LTAR link columns are synced via the three-layer scheme
+ *  (main mirror link column + LinkedShadow + Junction) instead of being
+ *  rejected like the other virtual uidts. */
+export function isSyncLinkColumnUidt(uidt?: UITypes | string): boolean {
+  return uidt != null && SYNC_LINK_UIDTS.includes(uidt);
 }
 
 @Injectable()
@@ -269,6 +282,392 @@ export class TableSyncsService {
     );
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // [CE-EE] F09 P4: LTAR link layers (LinkedShadow + Junction)
+  // ──────────────────────────────────────────────────────────────────────
+
+  /** The syncable mm link columns of the source table. Only
+   *  junction-based (mm) links between the source table and a regular,
+   *  same-base, non-self related table are supported — everything else
+   *  stays outside the selectable set and keeps the P1 "unknown/unsupported
+   *  field" rejection when explicitly named (fork simplifications). */
+  private async loadSyncableLinks(
+    sourceContext: NcContext,
+    sourceModel: Model,
+  ): Promise<
+    { column: Column; colOptions: LinkToAnotherRecordColumn; relatedModelId: string }[]
+  > {
+    const links: {
+      column: Column;
+      colOptions: LinkToAnotherRecordColumn;
+      relatedModelId: string;
+    }[] = [];
+    for (const col of sourceModel.columns || []) {
+      if (!isSyncLinkColumnUidt(col.uidt)) continue;
+      const colOptions = await (col as Column).getColOptions<LinkToAnotherRecordColumn>(
+        sourceContext,
+      );
+      if (!colOptions) continue;
+      if (colOptions.type !== RelationTypes.MANY_TO_MANY) continue;
+      if (!colOptions.fk_mm_model_id || !colOptions.fk_related_model_id)
+        continue;
+      const related = await Model.get(sourceContext, colOptions.fk_related_model_id);
+      if (!related || related.deleted || related.type !== 'table') continue;
+      if (related.id === sourceModel.id) continue;
+      if (related.base_id !== sourceModel.base_id) continue;
+      links.push({ column: col as Column, colOptions, relatedModelId: related.id });
+    }
+    return links;
+  }
+
+  /** Generic nc_table_sync_mappings row insert (all roles). */
+  private async insertTableSyncMapping(
+    context: NcContext,
+    payload: Record<string, any>,
+  ) {
+    const { id } = await Noco.ncMeta.metaInsert2(
+      context.workspace_id,
+      context.base_id,
+      MetaTable.TABLE_SYNC_MAPPINGS,
+      payload,
+    );
+    return { ...payload, id } as any;
+  }
+
+  /** Post-create setup shared by every mirror table (main + shadows):
+   *  hide the engine system columns from the default grid view and force
+   *  the `system` meta flag so isHiddenCol hides them. (P1/R1 logic,
+   *  extracted in P4 so shadows get identical treatment.) */
+  private async setupMirrorSystemColumns(
+    context: NcContext,
+    mirrorModel: Model,
+  ) {
+    await mirrorModel.getColumns(context);
+
+    const mirrorViews = (await View.list(context, mirrorModel.id)) as any[];
+    const grid = (mirrorViews ?? []).find(
+      (v: any) => v.view_type === ViewTypes.GRID || v.type === ViewTypes.GRID,
+    );
+    if (grid?.id) {
+      const gcRows = (await GridViewColumn.list(context, grid.id)) as any[];
+      const sysColIds = (mirrorModel.columns ?? [])
+        .filter(
+          (c: any) => c.title === 'RemoteId' || c.title === 'RemoteDeleted',
+        )
+        .map((c: any) => c.id);
+      for (const gc of gcRows ?? []) {
+        if (sysColIds.includes(gc.fk_column_id)) {
+          await GridViewColumn.update(context, gc.id, { show: false });
+        }
+      }
+    }
+
+    const mirrorColumnRows = (await Noco.ncMeta.metaList2(
+      context.workspace_id,
+      context.base_id,
+      MetaTable.COLUMNS,
+      { condition: { fk_model_id: mirrorModel.id } },
+    )) as any[];
+    for (const colRow of mirrorColumnRows) {
+      if (
+        (colRow.title === 'RemoteId' || colRow.title === 'RemoteDeleted') &&
+        !colRow.system
+      ) {
+        await Noco.ncMeta.metaUpdate(
+          context.workspace_id,
+          context.base_id,
+          MetaTable.COLUMNS,
+          { system: true },
+          colRow.id,
+        );
+      }
+    }
+    await NocoCache.deepDel(
+      context,
+      `${CacheScope.COLUMN}:${mirrorModel.id}:list`,
+      CacheDelDirection.PARENT_TO_CHILD,
+    );
+  }
+
+  /** Create (once per related table) the LinkedShadow mirror for RT and
+   *  register its mapping + column mappings. */
+  private async ensureShadowForRelated(args: {
+    context: NcContext;
+    sourceContext: NcContext;
+    sync: TableSync;
+    relatedModelId: string;
+    destSourceId: string;
+    takenTitles: Set<string>;
+    req: NcRequest;
+    shadows: Map<string, { model: Model; mapping: any }>;
+  }) {
+    const {
+      context,
+      sourceContext,
+      sync,
+      relatedModelId,
+      destSourceId,
+      takenTitles,
+      req,
+      shadows,
+    } = args;
+    const existing = shadows.get(relatedModelId);
+    if (existing) return existing;
+
+    const rtModel = await Model.get(sourceContext, relatedModelId);
+    if (!rtModel || rtModel.deleted) {
+      NcError.tableNotFound(relatedModelId);
+    }
+    await rtModel.getColumns(sourceContext);
+
+    const rtMirrorable = this.getMirrorableColumns(rtModel);
+    const shadowColumnsPayload = [
+      ...rtMirrorable.map((c) => ({
+        title: c.title,
+        column_name: c.column_name || c.title,
+        uidt: c.uidt,
+        dt: c.dt,
+        readonly: true,
+      })),
+      ...TABLE_SYNC_SYSTEM_COLUMNS.map((c) => ({
+        title: c.title,
+        column_name: c.title.toLowerCase(),
+        uidt: c.uidt,
+        readonly: true,
+        system: true,
+      })),
+    ];
+
+    const destTables = await Model.list(context, {
+      base_id: context.base_id,
+      source_id: destSourceId,
+    });
+    const shadowTitle = generateUniqueName(
+      `${sync.title} ${rtModel.title}`,
+      destTables.map((t: any) => t.title).concat([...takenTitles]),
+    );
+    takenTitles.add(shadowTitle);
+
+    const shadowModel = (await this.tablesService.tableCreate(context, {
+      baseId: context.base_id,
+      sourceId: destSourceId,
+      user: req.user,
+      req,
+      synced: true,
+      table: {
+        title: shadowTitle,
+        table_name: shadowTitle,
+        columns: shadowColumnsPayload as any,
+      } as any,
+    })) as Model;
+
+    const shadowMapping = await this.insertTableSyncMapping(context, {
+      base_id: context.base_id,
+      fk_workspace_id: context.workspace_id,
+      fk_table_sync_id: sync.id,
+      source_workspace_id: sourceContext.workspace_id,
+      source_base_id: sourceContext.base_id,
+      source_table_id: rtModel.id,
+      // linked shadows ride the main sync's allow_sync credential — no
+      // per-shadow view requirement
+      source_view_id: null,
+      dest_base_id: context.base_id,
+      dest_table_id: shadowModel.id,
+      role: TableSyncMappingRole.LinkedShadow,
+    });
+
+    await this.setupMirrorSystemColumns(context, shadowModel);
+
+    // shadow column identity: RT scalar col id → shadow col id
+    const shadowColByTitle = new Map(
+      (shadowModel.columns || []).map((c) => [c.title, c]),
+    );
+    await TableSync.insertColumnMappings(
+      context,
+      rtMirrorable
+        .map((srcCol) => ({
+          base_id: context.base_id,
+          fk_workspace_id: context.workspace_id,
+          fk_table_sync_id: sync.id,
+          fk_table_sync_mapping_id: shadowMapping.id,
+          source_workspace_id: sourceContext.workspace_id,
+          source_base_id: sourceContext.base_id,
+          source_table_id: rtModel.id,
+          source_column_id: srcCol.id,
+          dest_base_id: context.base_id,
+          dest_table_id: shadowModel.id,
+          dest_column_id: shadowColByTitle.get(srcCol.title)?.id,
+        }))
+        .filter((r) => !!r.dest_column_id),
+    );
+
+    const entry = { model: shadowModel, mapping: shadowMapping };
+    shadows.set(relatedModelId, entry);
+    return entry;
+  }
+
+  /** Create the mirror link column on the main mirror (CE-native mm path:
+   *  columnAdd also builds the junction + the reverse column on the shadow)
+   *  and flip the junction to synced semantics. Returns the dest link
+   *  column + junction model id. */
+  private async addMirrorLinkColumn(args: {
+    context: NcContext;
+    sync: TableSync;
+    mainMirrorId: string;
+    shadowModelId: string;
+    srcLinkCol: Column;
+    req: NcRequest;
+  }) {
+    const { context, mainMirrorId, shadowModelId, srcLinkCol, req } = args;
+
+    const addedModel: any = await this.columnsService.columnAdd(context, {
+      req,
+      tableId: mainMirrorId,
+      user: req.user,
+      column: {
+        title: srcLinkCol.title,
+        uidt: srcLinkCol.uidt,
+        type: RelationTypes.MANY_TO_MANY,
+        parentId: mainMirrorId,
+        childId: shadowModelId,
+        readonly: true,
+      } as any,
+    });
+    const addedCol: any = (addedModel?.columns ?? []).find(
+      (c: any) => c.title === srcLinkCol.title,
+    );
+    if (!addedCol?.id) {
+      NcError.badRequest(
+        `Failed to create mirrored link column "${srcLinkCol.title}"`,
+      );
+    }
+    // the generic link-column insert drops the readonly flag — force it via
+    // direct meta (same pattern as the P1 system:true / P2 readonly patches)
+    if (!addedCol.readonly) {
+      await Noco.ncMeta.metaUpdate(
+        context.workspace_id,
+        context.base_id,
+        MetaTable.COLUMNS,
+        { readonly: true },
+        addedCol.id,
+      );
+    }
+
+    const linkOpt = await (addedCol as Column).getColOptions<LinkToAnotherRecordColumn>(
+      context,
+    );
+    const junctionModelId = linkOpt?.fk_mm_model_id;
+    if (!junctionModelId) {
+      NcError.badRequest(
+        `Failed to resolve junction for mirrored link column "${srcLinkCol.title}"`,
+      );
+    }
+
+    // junction becomes a synced table: the whole read-only guard chain
+    // engages and the engine writes pairs through its internal channel only
+    await Model.updateSynced(context, junctionModelId, true);
+
+    return { addedCol, junctionModelId };
+  }
+
+  /** [CE-EE] F09 P4: removeSyncedLinkFieldDropsJunctionShadow — dropping a
+   *  mirrored link column also drops its junction table and the mapping
+   *  rows. The shadow is handled separately (dropShadowForRelated) so it
+   *  survives while another link column still references the same table. */
+  private async dropMirrorLinkColumn(args: {
+    context: NcContext;
+    baseId: string;
+    tableSyncId: string;
+    destModel: Model;
+    linkMapping: any;
+    req: NcRequest;
+  }) {
+    const { context, tableSyncId, destModel, linkMapping, req } = args;
+
+    const destLinkCol: any = (destModel.columns || []).find(
+      (c: any) => c.id === linkMapping.dest_column_id,
+    );
+    let junctionId: string | null = null;
+    if (destLinkCol) {
+      const opt = await (destLinkCol as Column).getColOptions<LinkToAnotherRecordColumn>(
+        context,
+      );
+      junctionId = opt?.fk_mm_model_id ?? null;
+      await this.columnsService.columnDelete(context, {
+        req,
+        columnId: destLinkCol.id,
+        forceDeleteSystem: true,
+        skipTrash: true,
+      });
+    }
+    // drop the junction table (synced semantics — the sync handler is the
+    // authority; forceDeleteSyncs bypasses the guard the same way deleteSync
+    // removes the mirror itself)
+    if (junctionId) {
+      try {
+        await this.tablesService.tableDelete(context, {
+          tableId: junctionId,
+          forceDeleteSyncs: true,
+          req,
+        });
+      } catch {
+        /* already gone — keep cascading */
+      }
+      await Noco.ncMeta.knex(MetaTable.TABLE_SYNC_MAPPINGS)
+        .where({
+          fk_table_sync_id: tableSyncId,
+          role: TableSyncMappingRole.Junction,
+          dest_table_id: junctionId,
+        })
+        .del();
+    }
+    // remove the link column identity mapping
+    await Noco.ncMeta.knex(MetaTable.TABLE_SYNC_COLUMN_MAPPINGS)
+      .where({
+        fk_table_sync_id: tableSyncId,
+        source_column_id: linkMapping.source_column_id,
+      })
+      .del();
+  }
+
+  /** [CE-EE] F09 P4: drop a LinkedShadow table + its mapping and column
+   *  mappings — called when the last referencing link column leaves the
+   *  selection. */
+  private async dropShadowForRelated(args: {
+    context: NcContext;
+    baseId: string;
+    tableSyncId: string;
+    relatedModelId: string;
+    req: NcRequest;
+  }) {
+    const { context, baseId, tableSyncId, relatedModelId, req } = args;
+    const mappings = await TableSync.listMappings(context, baseId, tableSyncId);
+    const shadowMapping: any = (mappings as any[]).find(
+      (m) =>
+        m.role === TableSyncMappingRole.LinkedShadow &&
+        m.source_table_id === relatedModelId,
+    );
+    if (!shadowMapping) return;
+    try {
+      await this.tablesService.tableDelete(context, {
+        tableId: shadowMapping.dest_table_id,
+        forceDeleteSyncs: true,
+        req,
+      });
+    } catch {
+      /* already gone — keep deleting the registration rows */
+    }
+    await Noco.ncMeta.knex(MetaTable.TABLE_SYNC_COLUMN_MAPPINGS)
+      .where({
+        fk_table_sync_id: tableSyncId,
+        fk_table_sync_mapping_id: shadowMapping.id,
+      })
+      .del();
+    await Noco.ncMeta.knex(MetaTable.TABLE_SYNC_MAPPINGS)
+      .where({ id: shadowMapping.id })
+      .del();
+  }
+
   async listSyncs(context: NcContext, baseId: string) {
     const syncs = await TableSync.list(context, baseId);
 
@@ -350,6 +749,8 @@ export class TableSyncsService {
       if (!srcModel) NcError.badRequest('Shared view not found');
       await srcModel.getColumns(srcContext);
       const mirrorable = this.getMirrorableColumns(srcModel);
+      // [CE-EE] F09 P4: offer the syncable mm link columns to the wizard
+      const pasteLinks = await this.loadSyncableLinks(srcContext, srcModel);
       return {
         sourceInputMode: TableSyncInputMode.Paste,
         sourceBase: { id: (view as any).base_id, title: (view as any).base_id },
@@ -361,11 +762,20 @@ export class TableSyncsService {
           uuid,
         },
         views: [],
-        columns: mirrorable.map((c) => ({
-          id: c.id,
-          title: c.title,
-          uidt: c.uidt,
-        })),
+        columns: mirrorable
+          .map((c) => ({
+            id: c.id,
+            title: c.title,
+            uidt: c.uidt,
+          }))
+          .concat(
+            pasteLinks.map((l) => ({
+              id: l.column.id,
+              title: l.column.title,
+              uidt: l.column.uidt,
+              link: true,
+            })),
+          ),
       };
     }
 
@@ -384,6 +794,8 @@ export class TableSyncsService {
     );
 
     const mirrorable = this.getMirrorableColumns(sourceModel);
+    // [CE-EE] F09 P4: syncable mm link columns for the wizard selection list
+    const syncableLinks = await this.loadSyncableLinks(sourceContext, sourceModel);
     const gridViews = await this.getSourceGridViews(sourceContext, sourceModel);
     const selectedView = sourceViewId
       ? gridViews.find((v) => v.id === sourceViewId)
@@ -400,11 +812,22 @@ export class TableSyncsService {
         title: v.title,
         allow_sync: !!(v as any).allow_sync,
       })),
-      columns: mirrorable.map((c) => ({
-        id: c.id,
-        title: c.title,
-        uidt: c.uidt,
-      })),
+      // [CE-EE] F09 P4: syncable mm link columns are offered with a link
+      // flag (the wizard renders titles, so no UI change is required)
+      columns: mirrorable
+        .map((c) => ({
+          id: c.id,
+          title: c.title,
+          uidt: c.uidt,
+        }))
+        .concat(
+          syncableLinks.map((l) => ({
+            id: l.column.id,
+            title: l.column.title,
+            uidt: l.column.uidt,
+            link: true,
+          })),
+        ),
     };
   }
 
@@ -552,6 +975,12 @@ export class TableSyncsService {
     if (!mirrorable.length) {
       NcError.badRequest('Source table has no syncable columns');
     }
+    // [CE-EE] F09 P4: mm link columns are selectable — they build the
+    // three-layer structure (mirror link column + shadow + junction)
+    const syncableLinks = await this.loadSyncableLinks(
+      sourceContext,
+      sourceModel,
+    );
     const colliding = mirrorable.find(
       (c) => reservedNames.has(c.title) || reservedNames.has(c.column_name),
     );
@@ -561,8 +990,9 @@ export class TableSyncsService {
       );
     }
 
-    // field selection: null = all (current + future P2), array = whitelist by
-    // title. Virtual/LTAR picks are rejected — LTAR mirroring is P4 scope.
+    // field selection: null = all (current + future), array = whitelist by
+    // title. Non-mm / self / cross-base links stay out of the selectable set
+    // and keep the P1 "unsupported or unknown" rejection when named.
     let selectedFieldsFinal: string[] | null = null;
     if (Array.isArray(selectedFields)) {
       // [CE-EE] F09 P2(lane obs): an empty array produced a zero-column
@@ -572,7 +1002,11 @@ export class TableSyncsService {
           'selectedFields must not be empty — omit it to sync all fields',
         );
       }
-      const available = new Set(mirrorable.map((c) => c.title));
+      const available = new Set(
+        mirrorable
+          .map((c) => c.title)
+          .concat(syncableLinks.map((l) => l.column.title)),
+      );
       const unknown = selectedFields.filter((t) => !available.has(t));
       if (unknown.length) {
         NcError.badRequest(
@@ -581,6 +1015,11 @@ export class TableSyncsService {
       }
       selectedFieldsFinal = selectedFields;
     }
+    // [CE-EE] F09 P4: the link columns this sync mirrors (all of them when
+    // selectedFields is null)
+    const selectedLinks = selectedFieldsFinal
+      ? syncableLinks.filter((l) => selectedFieldsFinal!.includes(l.column.title))
+      : syncableLinks;
 
     const destBase = await Base.getWithInfo(context, baseId);
     if (!destBase) NcError.baseNotFound(baseId);
@@ -652,68 +1091,11 @@ export class TableSyncsService {
     // [CE-EE] F09 P2(lane obs): creation is not atomic — a failure after the
     // mirror table exists (mapping insert, GVC patch, job enqueue) used to
     // strand an orphan synced table. Best-effort cleanup keeps the base clean.
+    const createdDestTableIds: string[] = [mirrorModel.id];
     try {
-      await mirrorModel.getColumns(context);
-
-      // [CE-EE] F09 R1(lane5): hide the engine bookkeeping columns from the
-      // mirror's default grid view (standard view-column show=false — works
-      // regardless of the meta system flag path)
-      const mirrorViews = (await View.list(context, mirrorModel.id)) as any[];
-      const grid = (mirrorViews ?? []).find(
-        (v: any) => v.view_type === ViewTypes.GRID || v.type === ViewTypes.GRID,
-      );
-      if (grid?.id) {
-        const gcRows = (await GridViewColumn.list(context, grid.id)) as any[];
-        // [CE-EE] F09 R1(lane5): GVC rows carry fk_column_id but NO title —
-        // match against the mirror model's system column ids instead
-        const sysColIds = (mirrorModel.columns ?? [])
-          .filter(
-            (c: any) => c.title === 'RemoteId' || c.title === 'RemoteDeleted',
-          )
-          .map((c: any) => c.id);
-        let hidden = 0;
-        for (const gc of gcRows ?? []) {
-          if (sysColIds.includes(gc.fk_column_id)) {
-            await GridViewColumn.update(context, gc.id, { show: false });
-            hidden += 1;
-          }
-        }
-      }
-
-      // [CE-EE] F09 R1(lane3/lane4): the generic table-create meta path drops
-      // the custom system flag on appended sync system columns (CreatedAt-style
-      // seeds persist, customer-payload columns do not) — force it post-create
-      // so isHiddenCol hides RemoteId/RemoteDeleted from the grid. Direct meta
-      // list+update (bypasses the model column cache and Column.update's
-      // narrow whitelist, both of which were verified to drop the flag).
-      const mirrorColumnRows = (await Noco.ncMeta.metaList2(
-        context.workspace_id,
-        context.base_id,
-        MetaTable.COLUMNS,
-        { condition: { fk_model_id: mirrorModel.id } },
-      )) as any[];
-      for (const colRow of mirrorColumnRows) {
-        if (
-          (colRow.title === 'RemoteId' || colRow.title === 'RemoteDeleted') &&
-          !colRow.system
-        ) {
-          await Noco.ncMeta.metaUpdate(
-            context.workspace_id,
-            context.base_id,
-            MetaTable.COLUMNS,
-            { system: true },
-            colRow.id,
-          );
-        }
-      }
-      // [CE-EE] F09 R2(lane5): invalidate the list key (PARENT_TO_CHILD) — the
-      // previous model-scoped key never matched the actual cache entries
-      // (COLUMN:<modelId>:list / COLUMN:<colId>) and was a silent no-op
-      await NocoCache.deepDel(
-        context,
-        `${CacheScope.COLUMN}:${mirrorModel.id}:list`,
-        CacheDelDirection.PARENT_TO_CHILD,
-      );
+      // [CE-EE] F09 P4: mirror system-column setup extracted (shared with
+      // shadow tables) — GVC hide + system flag patch + cache invalidation
+      await this.setupMirrorSystemColumns(context, mirrorModel);
 
       const sync = await TableSync.insert(context, {
         base_id: baseId,
@@ -767,20 +1149,85 @@ export class TableSyncsService {
           .filter((r) => !!r.dest_column_id),
       );
 
+      // [CE-EE] F09 P4: the three link layers — LinkedShadow mirror per
+      // related table, mirror link column (+ CE-native junction) on the
+      // main mirror with synced semantics, junction mapping rows and the
+      // link column identity mapping. Built BEFORE the first full-create
+      // run so the engine sees the complete structure.
+      if (selectedLinks.length) {
+        const destSourceId = destBase.sources[0].id;
+        const takenTitles = new Set<string>([mirrorTitle]);
+        const shadows = new Map<string, { model: Model; mapping: any }>();
+        for (const link of selectedLinks) {
+          const shadow = await this.ensureShadowForRelated({
+            context,
+            sourceContext,
+            sync,
+            relatedModelId: link.relatedModelId,
+            destSourceId,
+            takenTitles,
+            req,
+            shadows,
+          });
+          createdDestTableIds.push(shadow.model.id);
+
+          const { addedCol, junctionModelId } = await this.addMirrorLinkColumn({
+            context,
+            sync,
+            mainMirrorId: mirrorModel.id,
+            shadowModelId: shadow.model.id,
+            srcLinkCol: link.column,
+            req,
+          });
+          createdDestTableIds.push(junctionModelId);
+
+          // junction mapping — source_* stay null (EE junction semantics:
+          // the pairing lives in the RemoteId pairs, not a source table)
+          await this.insertTableSyncMapping(context, {
+            base_id: baseId,
+            fk_workspace_id: context.workspace_id,
+            fk_table_sync_id: sync.id,
+            dest_base_id: baseId,
+            dest_table_id: junctionModelId,
+            role: TableSyncMappingRole.Junction,
+          });
+
+          // link column identity (main mapping scope): source link col →
+          // dest link col; the engine derives junction/shadow from it
+          await TableSync.insertColumnMappings(context, [
+            {
+              base_id: baseId,
+              fk_workspace_id: context.workspace_id,
+              fk_table_sync_id: sync.id,
+              fk_table_sync_mapping_id: mainMapping.id,
+              source_workspace_id: sourceContext.workspace_id,
+              source_base_id: sourceContext.base_id,
+              source_table_id: sourceModel.id,
+              source_column_id: link.column.id,
+              dest_base_id: baseId,
+              dest_table_id: mirrorModel.id,
+              dest_column_id: addedCol.id,
+            } as any,
+          ]);
+        }
+      }
+
       await this.enqueueSyncJob(context, sync, 'full-create', req);
 
       return this.getSync(context, baseId, sync.id);
     } catch (e) {
-      // mirror exists but the sync could not be completed — remove it so the
-      // base is not left with a stranded read-only table
-      try {
-        await this.tablesService.tableDelete(context, {
-          tableId: mirrorModel.id,
-          forceDeleteSyncs: true,
-          req,
-        });
-      } catch {
-        /* best effort — surface the original error either way */
+      // any structure created before the failure is removed so the base is
+      // not left with stranded synced tables (mirror / shadows / junctions)
+      for (const tableId of createdDestTableIds) {
+        try {
+          await this.tablesService.tableDelete(context, {
+            tableId,
+            forceDeleteSyncs: true,
+            req,
+          });
+        } catch {
+          /* best effort — surface the original error either way */
+        }
       }
       throw e;
     }
@@ -912,11 +1359,19 @@ export class TableSyncsService {
       await destModel.getColumns(context);
 
       const mirrorable = this.getMirrorableColumns(srcModel);
+      // [CE-EE] F09 P4: syncable mm link columns join the selectable set —
+      // adds build the three layers, drops cascade junction + orphan shadow
+      const syncableLinks = await this.loadSyncableLinks(sourceContext, srcModel);
+      let desiredLinks = syncableLinks;
       let desired: any[];
       if (body.selected_fields === null) {
         desired = mirrorable;
       } else {
-        const available = new Set(mirrorable.map((c) => c.title));
+        const available = new Set(
+          mirrorable
+            .map((c) => c.title)
+            .concat(syncableLinks.map((l) => l.column.title)),
+        );
         const unknown = (body.selected_fields as string[]).filter(
           (t) => !available.has(t),
         );
@@ -928,8 +1383,11 @@ export class TableSyncsService {
         desired = mirrorable.filter((c) =>
           (body.selected_fields as string[]).includes(c.title),
         );
+        desiredLinks = syncableLinks.filter((l) =>
+          (body.selected_fields as string[]).includes(l.column.title),
+        );
       }
-      if (!desired.length) {
+      if (!desired.length && !desiredLinks.length) {
         NcError.badRequest('The selection leaves the mirror table empty');
       }
 
@@ -945,11 +1403,53 @@ export class TableSyncsService {
       const mappedSrcIds = new Set(colMappings.map((m) => m.source_column_id));
       const desiredSrcIds = new Set(desired.map((c: any) => c.id));
 
+      // [CE-EE] F09 P4: related tables still referenced by KEPT link columns
+      // — a shadow is only dropped when its last referencing link leaves
+      const keptLinkRtIds = new Set<string>();
+      for (const m of colMappings) {
+        if (!desiredSrcIds.has(m.source_column_id)) continue;
+        const srcCol: any = srcColById.get(m.source_column_id);
+        if (!srcCol || !isSyncLinkColumnUidt(srcCol.uidt)) continue;
+        const opt = await (srcCol as Column).getColOptions<LinkToAnotherRecordColumn>(
+          sourceContext,
+        );
+        if (opt?.fk_related_model_id) {
+          keptLinkRtIds.add(opt.fk_related_model_id);
+        }
+      }
+
       // drops: mapped source columns leaving the selection → drop the mirror
       // column (forceDeleteSystem bypasses the synced-column delete guard —
-      // the sync handler is the authority) + remove the mapping row
+      // the sync handler is the authority) + remove the mapping row.
+      // Link-typed drops cascade: junction table first, then the shadow if
+      // orphaned (removeSyncedLinkFieldDropsJunctionShadow semantics).
       for (const m of colMappings) {
         if (desiredSrcIds.has(m.source_column_id)) continue;
+        const srcCol: any = srcColById.get(m.source_column_id);
+        if (srcCol && isSyncLinkColumnUidt(srcCol.uidt)) {
+          const opt = await (srcCol as Column).getColOptions<LinkToAnotherRecordColumn>(
+            sourceContext,
+          );
+          const relatedModelId = opt?.fk_related_model_id ?? null;
+          await this.dropMirrorLinkColumn({
+            context,
+            baseId,
+            tableSyncId,
+            destModel,
+            linkMapping: m,
+            req,
+          });
+          if (relatedModelId && !keptLinkRtIds.has(relatedModelId)) {
+            await this.dropShadowForRelated({
+              context,
+              baseId,
+              tableSyncId,
+              relatedModelId,
+              req,
+            });
+          }
+          continue;
+        }
         const destCol = destColById.get(m.dest_column_id);
         if (destCol) {
           await this.columnsService.columnDelete(context, {
@@ -1023,6 +1523,63 @@ export class TableSyncsService {
         ]);
       }
 
+      // [CE-EE] F09 P4: link adds — build shadow (+ junction) layers for
+      // newly selected link columns (shared with the createSync flow)
+      const mappedLinkSrcIds = new Set(
+        colMappings
+          .filter((m) => {
+            const sc: any = srcColById.get(m.source_column_id);
+            return sc && isSyncLinkColumnUidt(sc.uidt);
+          })
+          .map((m) => m.source_column_id),
+      );
+      const toAddLinks = desiredLinks.filter(
+        (l) => !mappedLinkSrcIds.has(l.column.id),
+      );
+      for (const link of toAddLinks) {
+        const shadow = await this.ensureShadowForRelated({
+          context,
+          sourceContext,
+          sync,
+          relatedModelId: link.relatedModelId,
+          destSourceId: (destModel as any).source_id,
+          takenTitles: new Set<string>(),
+          req,
+          shadows: new Map(),
+        });
+        const { addedCol, junctionModelId } = await this.addMirrorLinkColumn({
+          context,
+          sync,
+          mainMirrorId: mainMapping.dest_table_id,
+          shadowModelId: shadow.model.id,
+          srcLinkCol: link.column,
+          req,
+        });
+        await this.insertTableSyncMapping(context, {
+          base_id: baseId,
+          fk_workspace_id: context.workspace_id,
+          fk_table_sync_id: tableSyncId,
+          dest_base_id: baseId,
+          dest_table_id: junctionModelId,
+          role: TableSyncMappingRole.Junction,
+        });
+        await TableSync.insertColumnMappings(context, [
+          {
+            base_id: baseId,
+            fk_workspace_id: context.workspace_id,
+            fk_table_sync_id: tableSyncId,
+            fk_table_sync_mapping_id: mainMapping.id,
+            source_workspace_id: mainMapping.source_workspace_id,
+            source_base_id: mainMapping.source_base_id,
+            source_table_id: mainMapping.source_table_id,
+            source_column_id: link.column.id,
+            dest_base_id: baseId,
+            dest_table_id: mainMapping.dest_table_id,
+            dest_column_id: addedCol.id,
+          } as any,
+        ]);
+      }
+
       selectedFieldsPatch =
         body.selected_fields === null ? null : (body.selected_fields as string[]);
     }
@@ -1068,17 +1625,29 @@ export class TableSyncsService {
     }
 
     const mappings = await TableSync.listMappings(context, baseId, tableSyncId);
-    const mainMapping = mappings.find((m) => m.role === TableSyncMappingRole.Main);
 
-    // trash the mirror table with the platform-unified trash semantics;
-    // forceDeleteSyncs bypasses the synced-table delete guard (this IS the
-    // sync removal path the guard reserves the bypass for)
-    if (mainMapping?.dest_table_id) {
-      await this.tablesService.tableDelete(context, {
-        tableId: mainMapping.dest_table_id,
-        forceDeleteSyncs: true,
-        req,
-      });
+    // [CE-EE] F09 P4: every table the sync created goes — junctions and
+    // shadows first, then the main mirror (trash semantics via
+    // forceDeleteSyncs, the same authority path deleteSync always had).
+    // Best-effort per table: an already-removed structure must not block
+    // the sync deletion.
+    const roleOrder: Record<string, number> = {
+      [TableSyncMappingRole.Junction]: 0,
+      [TableSyncMappingRole.LinkedShadow]: 1,
+      [TableSyncMappingRole.Main]: 2,
+    };
+    for (const m of [...mappings]
+      .sort((a: any, b: any) => (roleOrder[a.role] ?? 3) - (roleOrder[b.role] ?? 3)) as any[]) {
+      if (!m.dest_table_id) continue;
+      try {
+        await this.tablesService.tableDelete(context, {
+          tableId: m.dest_table_id,
+          forceDeleteSyncs: true,
+          req,
+        });
+      } catch {
+        /* best effort — keep tearing the sync down */
+      }
     }
 
     await TableSync.delete(context, baseId, tableSyncId);
@@ -1255,36 +1824,43 @@ export class TableSyncsService {
     }
     const destTableId = mainMapping.dest_table_id;
 
-    // flips nc_models.synced=false — the synced guard chain keys off this
-    await Model.updateSynced(context, destTableId, false);
+    // [CE-EE] F09 P4: detach EVERY table the sync created (EE semantics:
+    // "All tables created by the sync are kept as regular, editable tables
+    // and stop syncing") — main mirror, shadows and junctions all flip to
+    // regular; the mirror link columns keep working against the (now
+    // regular) shadow/junction tables.
+    for (const m of mappings as any[]) {
+      if (!m.dest_table_id) continue;
+      await Model.updateSynced(context, m.dest_table_id, false);
 
-    // lift the readonly flag on every mirror column (direct meta — same
-    // pattern as the P1 system:true patch; Column.update's whitelist drops
-    // the flag silently)
-    const mirrorColumnRows = (await Noco.ncMeta.metaList2(
-      context.workspace_id,
-      context.base_id,
-      MetaTable.COLUMNS,
-      { condition: { fk_model_id: destTableId } },
-    )) as any[];
-    for (const colRow of mirrorColumnRows) {
-      if (colRow.readonly) {
-        await Noco.ncMeta.metaUpdate(
-          context.workspace_id,
-          context.base_id,
-          MetaTable.COLUMNS,
-          { readonly: false },
-          colRow.id,
-        );
+      // lift the readonly flag on every column of the table (direct meta —
+      // same pattern as the P1 system:true patch; Column.update's whitelist
+      // drops the flag silently)
+      const tableColumnRows = (await Noco.ncMeta.metaList2(
+        context.workspace_id,
+        context.base_id,
+        MetaTable.COLUMNS,
+        { condition: { fk_model_id: m.dest_table_id } },
+      )) as any[];
+      for (const colRow of tableColumnRows) {
+        if (colRow.readonly) {
+          await Noco.ncMeta.metaUpdate(
+            context.workspace_id,
+            context.base_id,
+            MetaTable.COLUMNS,
+            { readonly: false },
+            colRow.id,
+          );
+        }
       }
+      await NocoCache.deepDel(
+        context,
+        `${CacheScope.COLUMN}:${m.dest_table_id}:list`,
+        CacheDelDirection.PARENT_TO_CHILD,
+      );
     }
-    await NocoCache.deepDel(
-      context,
-      `${CacheScope.COLUMN}:${destTableId}:list`,
-      CacheDelDirection.PARENT_TO_CHILD,
-    );
 
-    // remove the sync + its mappings; the table survives as regular
+    // remove the sync + its mappings; the tables survive as regular
     await TableSync.deleteColumnMappings(context, baseId, tableSyncId);
     await TableSync.delete(context, baseId, tableSyncId);
 

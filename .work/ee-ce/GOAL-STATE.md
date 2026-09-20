@@ -2,8 +2,17 @@
 
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
-- 更新时间: 2026-09-20 07:1x（**F09 P3 PASS**：R3/R4/R5 连续清洁连击 3/3；仅剩 P4（LTAR 三层）——实现待续作会话）
-- LOCK: active（F09 P4 实现待开工）
+- 更新时间: 2026-09-20 08:5x（**F09 P4 实现批完成**：LTAR 三层实现 + 质量门全过 + 活体 12 步 ALL PASS + realtime/detach/标量回归 probe 全过；待会审闭环）
+- LOCK: active（F09 P4 实现完成，待派 5 路会审）
+
+## F09 P4 实现批完成（2026-09-20 08:5x，待会审）
+
+- 实现（单实现批，设计先行：`.work/ee-ce/f09-p4-impl-report.md`）：LTAR 三层 = mirror link 列（columnAdd 建 CE 原生 mm junction → `Model.updateSynced(junction,true)` 翻 synced 语义）+ LinkedShadow（RT 标量镜像，RemoteId 键控，synced）+ Junction mapping（role=junction，source_*=null）；引擎 full pass = 主表 pass（不动）→ shadow pass（upsert+sweep 同构）→ junction recompute（源 junction 配对 diff，knex 直写，悬挂对剔除）；incremental 删除后 junction 孤儿清理；realtime 简化档 = `updateLastModified` 单点 tap（全仓 link 变更汇聚点）→ 'link' 事件 → **full-resync** 分发（loadRealtimeTargets 扩 role IN (main, linked_shadow)）；updateSync link 加/删传播 + removeSyncedLinkFieldDropsJunctionShadow 级联（junction→shadow 引用计数）；deleteSync/detachSync 全表级联（detach=三表全转正 EE 语义）；sourceSchema 双分支暴露 link 列（link:true，前端零改动）
+- 质量门：tsc 0 + jest Fork 47/47（P3 44 不回归 + P4 新增 3）+ 前端零 SFC 改动
+- 活体（:8080 P4 构建）：selftest 12 步 ALL PASS（三层 mapping/synced 语义/配对 LTAR 解析/relink-unlink 传播/junction 直写 422/级联 drop/deleteSync 清理）+ realtime link 变更 ~5s 传播 probe + detach 三表转正 probe + P3 标量 incremental 回归 probe
+- 自测脚本教训：`POST /columns` 返回刷新后 Model（P2 已知），列 id 须从 `.columns` 按 title 捞——首轮 junction=0 是脚本 bug 非引擎
+- 遗留 backlog 见 f09-p4-impl-report.md §9（realtime 全量档风暴/无 LMT 列不 tap/shadow 列漂移不传播/bt-hm-oo-自引用-跨 base 不支持/link order 不同步/role 匹配无单测）
+- 范围收窄（用户已批简化档）：realtime 对 junction/shadow 变更投全量 resync（scalar 事件仍 P3 incremental）
 
 ## F09 P3 PASS（2026-09-20 07:1x，R3/R4/R5 连续清洁连击 3/3）
 

@@ -27,7 +27,14 @@ export type TableSyncChangeEvent =
   | 'update'
   | 'bulkUpdate'
   | 'delete'
-  | 'bulkDelete';
+  | 'bulkDelete'
+  // [CE-EE] F09 P4: link-structure change — tapped from
+  // BaseModelSqlv2.updateLastModified, which is the single funnel every
+  // LTAR pair mutation goes through (relation manager add/remove child,
+  // add-remove-links batch, nested insert/update, row delete touching
+  // linked rows). Dispatched as a FULL resync per the P4 simplification
+  // tier (junction pair recomputation runs in the full pass).
+  | 'link';
 
 /** [CE-EE] F09 P3: syncs whose event was skipped because the sync was
  *  Syncing at tap time. The processor checks this after each run and
@@ -60,6 +67,9 @@ type SyncTarget = {
   workspace_id: string;
   base_id: string;
   created_by: string | null;
+  /** [CE-EE] F09 P4: mapping role — 'main' syncs get incremental
+   *  affectedIds runs, 'linked_shadow' syncs get full resyncs */
+  role?: string;
   /** filled by the caller of claimAndEnqueue (loadRealtimeTargets callers
    *  know it; the catch-up path resolves it via the main mapping) */
   source_table_id?: string;
@@ -68,7 +78,7 @@ type SyncTarget = {
 async function loadRealtimeTargets(
   sourceModelId: string,
 ): Promise<SyncTarget[]> {
-  // one round trip: main mappings sourcing this table joined with their
+  // one round trip: table mappings sourcing this table joined with their
   // sync row, filtered to realtime. [CE-EE] F09 P3-R1(lane1/2/4/5): NO
   // status filter here — a status='active' pre-filter made Syncing/paused
   // syncs invisible to the tap, so their events were silently dropped at
@@ -76,8 +86,11 @@ async function loadRealtimeTargets(
   // All statuses flow through (the CAS claims only active runs; syncing/
   // paused claim-misses land in markSkippedDuringSync and the catch-up —
   // a full upsert+sweep pass — reconciles them on the next run/resume). Soft-deleted syncs hard-delete their mappings
-  // (TableSync.delete), so no deleted filter is needed. role='main' keeps
-  // P4 shadow/junction mappings from double-dispatching.
+  // (TableSync.delete), so no deleted filter is needed.
+  // [CE-EE] F09 P4: role IN (main, linked_shadow) — main mappings feed
+  // the main mirror (incremental affectedIds), linked_shadow mappings feed
+  // shadow tables (full resync). Junction mappings carry no source_table_id
+  // (their writes are raw-knex and never tap), so they can never match.
   return (await Noco.ncMeta
     .knex(MetaTable.TABLE_SYNC_MAPPINGS)
     .join(
@@ -87,25 +100,31 @@ async function loadRealtimeTargets(
     )
     .where({
       [`${MetaTable.TABLE_SYNC_MAPPINGS}.source_table_id`]: sourceModelId,
-      [`${MetaTable.TABLE_SYNC_MAPPINGS}.role`]: 'main',
       [`${MetaTable.TABLE_SYNCS}.sync_trigger`]: TableSyncTrigger.Realtime,
     })
+    .whereIn(`${MetaTable.TABLE_SYNC_MAPPINGS}.role`, ['main', 'linked_shadow'])
     .select(
       `${MetaTable.TABLE_SYNCS}.id as sync_id`,
       `${MetaTable.TABLE_SYNCS}.fk_workspace_id as workspace_id`,
       `${MetaTable.TABLE_SYNCS}.base_id as base_id`,
       `${MetaTable.TABLE_SYNCS}.created_by as created_by`,
+      `${MetaTable.TABLE_SYNC_MAPPINGS}.role as role`,
     )) as SyncTarget[];
 }
 
 /** Claim the sync for exactly one queued run (atomic CAS on status) and
- *  enqueue the incremental job. `affectedIds` null = no ids known — the
- *  processor falls back to the full pass (upsert + disappearance sweep).
+ *  enqueue the job. `affectedIds` null = no ids known — for 'incremental'
+ *  mode the processor falls back to the full pass (upsert + disappearance
+ *  sweep); for 'full-resync' mode (P4 link/shadow events) the whole sync
+ *  including shadow + junction layers is recomputed.
  *  Returns the job id, or null when the claim missed (sync not active —
  *  the event is marked for catch-up instead). */
 async function claimAndEnqueue(
   target: SyncTarget,
   affectedIds: string[] | null,
+  // [CE-EE] F09 P4: main scalar events keep 'incremental'; link events and
+  // linked_shadow targets dispatch a full resync (simplification tier)
+  mode: 'incremental' | 'full-resync' = 'incremental',
 ): Promise<string | null> {
   const jobsService = getJobsService();
   if (!jobsService) {
@@ -139,7 +158,7 @@ async function claimAndEnqueue(
       },
       user: { id: target.created_by ?? undefined },
       syncId: target.sync_id,
-      mode: 'incremental',
+      mode,
       ...(affectedIds
         ? { affectedIdsBySource: { [target.source_table_id]: affectedIds } }
         : {}),
@@ -188,16 +207,26 @@ export async function notifySourceChange(
     if (!ids.length) return;
 
     for (const target of targets) {
+      // [CE-EE] F09 P4: main scalar events stay incremental (affectedIds
+      // by pk); link events (junction pair changes) and linked_shadow
+      // targets dispatch a full resync — the full pass recomputes the
+      // shadow tables and junction RemoteId pairings
+      const isLinkEvent = event === 'link';
+      const isShadowTarget = target.role === 'linked_shadow';
+      const mode: 'incremental' | 'full-resync' =
+        isLinkEvent || isShadowTarget ? 'full-resync' : 'incremental';
+
       const jobId = await claimAndEnqueue(
         // the CAS needs the source table id for affectedIdsBySource
         { ...target, source_table_id: sourceModelId },
-        ids,
+        !isLinkEvent && !isShadowTarget ? ids : null,
+        mode,
       );
       if (jobId === null) {
         markSkippedDuringSync(target.sync_id);
       } else {
         logger.debug(
-          `Table sync ${target.sync_id}: enqueued incremental run ${jobId} (${event}, ${ids.length} ids)`,
+          `Table sync ${target.sync_id}: enqueued ${mode} run ${jobId} (${event}, ${ids.length} ids)`,
         );
       }
     }
