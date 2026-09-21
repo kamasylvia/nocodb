@@ -1,3 +1,4 @@
+import { NcError } from '~/helpers/catchError';
 import {
   isLinksOrLTAR,
   isMMOrMMLike,
@@ -215,6 +216,21 @@ export const LTARColsUpdater = (param: {
     trx: CustomKnex;
     cookie: any;
   }) => {
+    // [CE-EE] F09 P4-R2(lane3 E1): guard synced mirrors at this v3-only
+    // entry — this helper calls addOrRemoveLinks directly (missing the
+    // method-level permission check, as the original comment below noted),
+    // so the v3 links endpoints previously bypassed the R1 guard entirely
+    if (baseModel.model?.synced) {
+      NcError.get(baseModel.context).prohibitedSyncTableOperation(
+        {
+          modelName: baseModel.model.title,
+          operation: 'update',
+        },
+        {
+          customMessage: `Link operations (link / unlink / reorder) are prohibited on synced table ${baseModel.model.title} — manage the links in the source table`,
+        },
+      );
+    }
     // This calls the addOrRemoveLinks helper directly rather than
     // baseModel.addLinks(), so it misses that method's permission check. The v3
     // link endpoints enter here without going through update(), which guards its

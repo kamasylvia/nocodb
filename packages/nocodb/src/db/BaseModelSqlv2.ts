@@ -6594,7 +6594,10 @@ class BaseModelSqlv2 implements IBaseModelSqlV2 {
   // through a dedicated raw-knex channel (recomputeJunctionPairs /
   // cleanupJunctionOrphans) that never routes through these methods, so no
   // bypass flag exists or is needed.
-  private assertLinkWriteAllowed(): void {
+  // [CE-EE] F09 P4-R2(lane3): public so the v3 LTAR updater (a separate
+  // class holding a baseModel ref) can reuse the exact guard — the v3
+  // links endpoints route through LTARColsUpdater, not the five entries
+  assertLinkWriteAllowed(): void {
     if (this.model?.synced) {
       NcError.get(this.context).prohibitedSyncTableOperation(
         {

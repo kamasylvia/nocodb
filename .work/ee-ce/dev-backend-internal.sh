@@ -16,7 +16,9 @@ case "${1:-start}" in
     ;;
   start|*)
     pgrep -f "$RUN/packages/nocodb/dist/main.js" >/dev/null && { echo "already running"; exit 0; }
-    set -a; . "$HOME/.zcode/.env"; set +a
+    # [CE-EE] 2026-09-20: agents/agents/.env 废止（用户迁移 config.toml [infisical] 为唯一真相源）——
+    # 改从 config.toml 注入身份 + PROJECT_ID_KDL，.zcode/.env 软链不再依赖
+    set -a; eval "$(awk '/^\[infisical\]/{f=1;next}/^\[/{f=0}f' "$HOME/.agents/config.toml" | sed 's/[[:space:]]*#.*//; s/[[:space:]]*=[[:space:]]*/=/; /^[[:space:]]*$/d')"; set +a
     # [CE-EE] 2026-09-20: INFISICAL_PROJECT_ID_KDL 自 ~/.zcode/.env 迁至
     # ~/.agents/config.toml [infisical] 段（全局 AGENTS §2.3.0）——缺则补载
     if [ -z "${INFISICAL_PROJECT_ID_KDL:-}" ] && [ -f "$HOME/.agents/config.toml" ]; then
