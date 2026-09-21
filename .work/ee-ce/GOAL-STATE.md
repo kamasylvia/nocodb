@@ -3,7 +3,8 @@
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
 - 更新时间: 2026-09-20 10:3x（**用户指令中止任务与巡检**：整点 automation 已删除；P4-R2 五路会审中止（~2min，零报告））
-- LOCK: active（**再恢复**（09-21/22 长挂起后用户指令）——P4-R2 按更新 roster 重派五路：lane1 omp / lane2 kilo(E3：CLI 平台安装损坏，缺席) / lane3 reasonix / lane4r pi / lane5 subagent(PASS 0E+1M 在手)；有效 4 路达标）
+- LOCK: active（**F09 P4 会审 R4 在飞**：R3 终裁 5/5 全 PASS 0 error 清洁（v3 守卫闭口活体三路互证 + Convert 弹窗全中文），连击 1/3；lane2 kilo E3 已档）
+- R3 终裁记录（09-22 01:0x）：R2 lane3 E1（v3 LTAR 通道绕过）修复 840c4218aa 回归闭口——静态调用图（4 处直调全落守卫内）+ 活体（editor/owner 422 ×多路、合法路径不误伤、realtime 2s 跟随无回归）三路互证；Convert 确认弹窗全中文活体过；R4 同规格站位 + zh-Hans/注释清理验证在飞
 - 长挂起注记：R2 首批（09-20 10:4x 派遣）经长挂起散失，仅 lane4 报告在手；roster 更新 = reasonix 回归（clinepass 已修）
 - 恢复记录：中止期间完成 Resilio 恢复、全局 AGENTS §11/§12 升格（5 项 nocodb 反哺）、workspace 侧 .work/config.toml 落位（[matrix.review] external=omp/pi/kilo + subagent_count=1，恰 = min_valid_lanes）
 
