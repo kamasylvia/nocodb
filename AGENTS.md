@@ -78,17 +78,15 @@
 
 ## 4. 工作流（长程任务协议）
 
-流程正本：`.work/ee-ce/TASK.md`；当前状态：`.work/ee-ce/GOAL-STATE.md`；全局进度：`.work/TODO.md`。
+**机制一律从简引用全局 AGENTS**：多路复审 = §11（唯一入口 `/matrix --review`；阈值在 agents 仓 config.toml `[matrix.review]`），长程任务骨架 = §12（GOAL-STATE 七件套/巡检五态/修复验收铁律/实现批与阶段化）。恢复/续作唯一依据 = `.work/ee-ce/GOAL-STATE.md`（流程正本 TASK.md、全局进度 TODO.md 同目录）。
 
-每功能循环：
+本节只记本项目差异：
 
-1. **实现**：解对应 UI gate + 替换 stub UI 组件 + 补后端 service/controller（如缺）+ 单测
-2. **自测**：dev server 起 nocodb-dev 上实测 API/UI 行为
-3. **会审**：派遣 **5 个独立子代理**（general-purpose，相互隔离禁读他路报告）做集成测试 + 多路复审
-4. **裁决**：≥2 路判 error = 必修；单路属实实测验证后也修；每轮修后重审；**连续 3 轮 0 error → 该功能 pass**
-5. **收尾**：归档报告到 `.work/ee-ce/r<N>-f<NN>-<agent>.md`，更新 GOAL-STATE + TODO.md，commit
-
-`.work/` 是流程目录，**默认不提交 git**；凭证/密码永不入 `.work` 明文。
+- **F09 阶段划分**（每阶段独立 3 连击，交付即 pass）：P1 Table Sync manual 闭环 → P2 生命周期 → P3 realtime/incremental + AUTO → P4 LTAR 三层（范围与裁定见 f09-research.md 与各阶段 impl-report）
+- **会审阵容实例**：5 路独立（外部 omp/pi/kilo/reasonix + subagent 补位，有效 ≥4；23:00–09:00 为 5 subagents；E3 缺席照全局 §11.8 补位）——报告归档 `.work/ee-ce/r<N>-p<M>-lane*.md`（P1-P3 历史命名 rN-fNN-*）
+- **热修部署三步**：UNITEK 构建须带 `NODE_ENV/ENTRYPOINT`（缺则 Missing field entry；emit 后 rspack 可能挂死——grep 特征串确认 emit 完整即 kill）→ rsync dist 到 `~/.nocodb-run` → 受控重启 + **「进程启动晚于 dist mtime」双条件核验**
+- 大功能循环（实现 → 自测 → 会审 → 收尾）的任务书/报告/归档落位与连线照全局执行；功能顺序调整需同步 TASK.md
+- `.work/` 的 md/sh 白名单跟踪（见 .gitignore，2026-09-15 起进度态经 main 同步），重产物忽略；**凭证/密码永不入 `.work` 明文**
 
 ## 5. 禁止事项
 
