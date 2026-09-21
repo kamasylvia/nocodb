@@ -1188,6 +1188,255 @@ describe('[CE-EE] F09 P4-R1 updateSync link cascade', () => {
   });
 });
 
+// [CE-EE] F09 P4-R4(lane5 E1): shared-shadow drop — dual junctions on ONE
+// linked_shadow. The R1-R3 drop leg tore the shared shadow down at the FIRST
+// leaving link, so the second link's columnDelete hit the deleted structure
+// (404), aborted the PATCH and left a permanent orphan junction mapping.
+// P4-R4: two-phase drop (all columns first, shadows refcount-gated after) +
+// zombie-junction convergence sweep, retry-safe.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe('[CE-EE] F09 P4-R4 shared-shadow drop convergence', () => {
+  const makeFixtures = () => {
+    const mmOptFor = (relatedModelId: string) => ({
+      type: 'mm',
+      fk_mm_model_id: 'src_junc',
+      fk_related_model_id: relatedModelId,
+    });
+    const srcModel = {
+      id: 'srctbl',
+      base_id: 'srcb',
+      deleted: false,
+      columns: [
+        { id: 'c1', title: 'Title', column_name: 'title', uidt: 'SingleLineText' },
+        { id: 'cl1', title: 'L1', column_name: 'l1', uidt: 'Links', getColOptions: async () => mmOptFor('t_rt') },
+        { id: 'cl2', title: 'L2', column_name: 'l2', uidt: 'Links', getColOptions: async () => mmOptFor('t_rt') },
+      ],
+      getColumns: jest.fn(),
+    };
+    const destModel = {
+      id: 't_dest',
+      deleted: false,
+      source_id: 's1',
+      columns: [
+        { id: 'd0', title: 'Id', column_name: 'id', pk: true },
+        { id: 'd1', title: 'Title', column_name: 'title' },
+        { id: 'dl1', title: 'L1', column_name: 'l1', uidt: 'Links', getColOptions: async () => ({ fk_mm_model_id: 'dest_junc_1' }) },
+        { id: 'dl2', title: 'L2', column_name: 'l2', uidt: 'Links', getColOptions: async () => ({ fk_mm_model_id: 'dest_junc_2' }) },
+      ],
+      getColumns: jest.fn(),
+    };
+    const rtModel = {
+      id: 't_rt',
+      base_id: 'srcb',
+      deleted: false,
+      type: 'table',
+      columns: [
+        { id: 'r1', title: 'Name', column_name: 'name', uidt: 'SingleLineText' },
+      ],
+      getColumns: jest.fn(),
+    };
+    const shadowModel = {
+      id: 't_shadow',
+      deleted: false,
+      source_id: 's1',
+      columns: [{ id: 's1c', title: 'Name', column_name: 'name' }],
+      getColumns: jest.fn(),
+    };
+    const mappings = [
+      {
+        id: 'map_main',
+        role: 'main',
+        source_workspace_id: 'ws1',
+        source_base_id: 'src1',
+        source_table_id: 'srctbl',
+        source_view_id: 'view1',
+        dest_table_id: 't_dest',
+      },
+      {
+        id: 'map_shadow',
+        role: 'linked_shadow',
+        source_table_id: 't_rt',
+        dest_table_id: 't_shadow',
+      },
+      { id: 'map_junc_1', role: 'junction', dest_table_id: 'dest_junc_1' },
+      { id: 'map_junc_2', role: 'junction', dest_table_id: 'dest_junc_2' },
+    ];
+    const colMappings = [
+      { source_column_id: 'c1', dest_column_id: 'd1', fk_table_sync_mapping_id: 'map_main', source_table_id: 'srctbl' },
+      { source_column_id: 'cl1', dest_column_id: 'dl1', fk_table_sync_mapping_id: 'map_main', source_table_id: 'srctbl' },
+      { source_column_id: 'cl2', dest_column_id: 'dl2', fk_table_sync_mapping_id: 'map_main', source_table_id: 'srctbl' },
+      // shadow-scope identity row — never touched by the main loop
+      { source_column_id: 'r1', dest_column_id: 's1c', fk_table_sync_mapping_id: 'map_shadow', source_table_id: 't_rt' },
+    ];
+    return { srcModel, destModel, rtModel, shadowModel, mappings, colMappings };
+  };
+
+  const buildService = () => {
+    const jobsService = { add: jest.fn().mockResolvedValue({ id: 'job-1' }) };
+    const tablesService = {
+      tableDelete: jest.fn().mockResolvedValue(null),
+      tableCreate: jest.fn(),
+    };
+    const columnsService = {
+      columnAdd: jest.fn(),
+      columnDelete: jest.fn().mockResolvedValue(null),
+      columnUpdate: jest.fn(),
+    };
+    return {
+      service: new TableSyncsService(tablesService as any, columnsService as any, jobsService as any),
+      jobsService,
+      tablesService,
+      columnsService,
+    };
+  };
+
+  const setupMocks = (fx: ReturnType<typeof makeFixtures>) => {
+    (TableSync.get as any).mockResolvedValue(syncRow());
+    (TableSync.listMappings as any).mockResolvedValue(fx.mappings);
+    (TableSync.listColumnMappings as any).mockResolvedValue(fx.colMappings);
+    (TableSync.update as any).mockResolvedValue(null);
+    (Model.get as any).mockImplementation(async (_ctx: any, id: string) => {
+      if (id === 'srctbl') return fx.srcModel;
+      if (id === 't_dest') return fx.destModel;
+      if (id === 't_rt') return fx.rtModel;
+      if (id === 't_shadow') return fx.shadowModel;
+      return null;
+    });
+    const ncMeta: any = ((Noco as any).ncMeta ??= {});
+    const qb: any = {};
+    for (const m of ['where', 'whereIn', 'del']) {
+      qb[m] = jest.fn().mockReturnValue(qb);
+    }
+    ncMeta.knex = jest.fn(() => qb);
+    ncMeta.metaInsert2 = jest.fn().mockResolvedValue({ id: 'jmap_new' });
+    ncMeta.metaUpdate = jest.fn().mockResolvedValue(null);
+    return { qb };
+  };
+
+  const deletedTableIds = (tablesService: any) =>
+    tablesService.tableDelete.mock.calls.map((c: any[]) => c[1].tableId);
+
+  it('drops ONE of two same-RT links: the other keeps all three layers and the shared shadow stands', async () => {
+    const fx = makeFixtures();
+    setupMocks(fx);
+    const { service, jobsService, tablesService, columnsService } = buildService();
+
+    await service.updateSync(
+      ctx,
+      'dest1',
+      'sync1',
+      { selected_fields: ['Title', 'L2'] },
+      req,
+    );
+
+    // only L1's mirror column was deleted
+    expect(columnsService.columnDelete).toHaveBeenCalledTimes(1);
+    expect(columnsService.columnDelete.mock.calls[0][1]).toMatchObject({
+      columnId: 'dl1',
+    });
+    // L1's junction went, but the shadow shared with L2 did NOT
+    expect(deletedTableIds(tablesService)).toEqual(['dest_junc_1']);
+    expect(tablesService.tableCreate).not.toHaveBeenCalled();
+    // L2 untouched: no rebuild
+    expect(Model.updateSynced).not.toHaveBeenCalled();
+    expect(TableSync.insertColumnMappings).not.toHaveBeenCalled();
+    // structural change → one data-backfill job
+    expect(jobsService.add).toHaveBeenCalledWith(
+      JobTypes.TableSyncRun,
+      expect.objectContaining({ syncId: 'sync1', mode: 'full-resync' }),
+    );
+    expect(TableSync.update).toHaveBeenCalledWith(
+      ctx,
+      'dest1',
+      'sync1',
+      expect.objectContaining({ selected_fields: ['Title', 'L2'] }),
+    );
+  });
+
+  it('drops BOTH same-RT links: junctions and the shared shadow all clear exactly once', async () => {
+    const fx = makeFixtures();
+    const { qb } = setupMocks(fx);
+    const { service, jobsService, tablesService, columnsService } = buildService();
+
+    await service.updateSync(ctx, 'dest1', 'sync1', { selected_fields: ['Title'] }, req);
+
+    expect(columnsService.columnDelete).toHaveBeenCalledTimes(2);
+    expect(deletedTableIds(tablesService)).toEqual([
+      'dest_junc_1',
+      'dest_junc_2',
+      't_shadow',
+    ]);
+    // both junction registration rows were deleted (role-scoped deletes)…
+    const junctionRowDels = qb.where.mock.calls
+      .map((c: any[]) => c[0])
+      .filter(
+        (w: any) => w?.role === 'junction' && typeof w?.dest_table_id === 'string',
+      );
+    expect(junctionRowDels).toEqual([
+      expect.objectContaining({ dest_table_id: 'dest_junc_1' }),
+      expect.objectContaining({ dest_table_id: 'dest_junc_2' }),
+    ]);
+    // …and the shadow was dropped exactly once despite two leaving links
+    expect(
+      deletedTableIds(tablesService).filter((id: string) => id === 't_shadow'),
+    ).toHaveLength(1);
+    expect(jobsService.add).toHaveBeenCalledWith(
+      JobTypes.TableSyncRun,
+      expect.objectContaining({ syncId: 'sync1', mode: 'full-resync' }),
+    );
+  });
+
+  it('converges on retry after a mid-loop failure that orphaned a junction mapping (lane5 E1)', async () => {
+    const fx = makeFixtures();
+    setupMocks(fx);
+    const { service, jobsService, tablesService, columnsService } = buildService();
+
+    // first PATCH: L1's column delete dies mid-way — the meta row is already
+    // destroyed (partial destruction, like the live 404) but a non-404 error
+    // surfaces and aborts the PATCH before any junction/shadow teardown
+    let first = true;
+    columnsService.columnDelete.mockImplementation(async (_c: any, args: any) => {
+      if (first) {
+        first = false;
+        const idx = fx.destModel.columns.findIndex(
+          (c: any) => c.id === args.columnId,
+        );
+        if (idx >= 0) fx.destModel.columns.splice(idx, 1);
+        throw new Error('connection reset by peer');
+      }
+      return null;
+    });
+
+    await expect(
+      service.updateSync(ctx, 'dest1', 'sync1', { selected_fields: ['Title'] }, req),
+    ).rejects.toThrow(/connection reset/);
+    expect(tablesService.tableDelete).not.toHaveBeenCalled();
+
+    // retry of the same PATCH: L1's column is gone (its junction mapping row
+    // still registered) — the sweep must clear the zombie junction, L2 drops
+    // normally and the shared shadow goes
+    await service.updateSync(ctx, 'dest1', 'sync1', { selected_fields: ['Title'] }, req);
+
+    // order differs from the happy path (the sweep clears the zombie junction
+    // after the loop) — assert as a set
+    expect(deletedTableIds(tablesService).sort()).toEqual(
+      ['dest_junc_1', 'dest_junc_2', 't_shadow'].sort(),
+    );
+    expect(TableSync.delete).not.toHaveBeenCalled();
+    expect(jobsService.add).toHaveBeenCalledWith(
+      JobTypes.TableSyncRun,
+      expect.objectContaining({ syncId: 'sync1', mode: 'full-resync' }),
+    );
+    expect(TableSync.update).toHaveBeenCalledWith(
+      ctx,
+      'dest1',
+      'sync1',
+      expect.objectContaining({ selected_fields: ['Title'] }),
+    );
+  });
+});
+
 describe('[CE-EE] F09 P4-R1 paste+link rejection', () => {
   const pasteView = {
     id: 'view1',

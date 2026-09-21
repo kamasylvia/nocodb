@@ -593,12 +593,20 @@ export class TableSyncsService {
         context,
       );
       junctionId = opt?.fk_mm_model_id ?? null;
-      await this.columnsService.columnDelete(context, {
-        req,
-        columnId: destLinkCol.id,
-        forceDeleteSystem: true,
-        skipTrash: true,
-      });
+      try {
+        await this.columnsService.columnDelete(context, {
+          req,
+          columnId: destLinkCol.id,
+          forceDeleteSystem: true,
+          skipTrash: true,
+        });
+      } catch (e: any) {
+        // [CE-EE] F09 P4-R4(lane5 E1): idempotent drop — an already-deleted
+        // structure (404 family) must not wedge the drop loop; the junction /
+        // mapping-row cleanup below still runs and a retry converges. Any
+        // other failure still surfaces.
+        if (!/not[\s_-]?found|404/i.test(String(e?.message ?? e))) throw e;
+      }
     }
     // drop the junction table (synced semantics — the sync handler is the
     // authority; forceDeleteSyncs bypasses the guard the same way deleteSync
@@ -1448,9 +1456,18 @@ export class TableSyncsService {
       // drops: mapped source columns leaving the selection → drop the mirror
       // column (forceDeleteSystem bypasses the synced-column delete guard —
       // the sync handler is the authority) + remove the mapping row.
-      // Link-typed drops cascade: junction table first, then the shadow if
-      // orphaned (removeSyncedLinkFieldDropsJunctionShadow semantics). Link
-      // mappings whose source column is still in the desired links are KEPT.
+      // Link mappings whose source column is still in the desired links are
+      // KEPT.
+      // [CE-EE] F09 P4-R4(lane5 E1): link-typed drops are TWO-PHASE. Phase 1
+      // (this loop) tears down every leaving link's mirror column + junction
+      // + mapping rows while ALL shadows still stand; phase 2 (after the
+      // sweep below) drops shadows refcount-gated. The old single pass
+      // dropped the shared shadow at the FIRST leaving link, so a second
+      // link column pointing at the same related table hit the
+      // already-deleted structure (404) mid-loop, aborted the PATCH and left
+      // its junction mapping as a permanent orphan.
+      const droppedLinkRtIds = new Set<string>();
+      const droppedLinkSrcColIds = new Set<string>();
       for (const m of mainColMappings) {
         if (desiredSrcIds.has(m.source_column_id)) continue;
         if (desiredLinkSrcIds.has(m.source_column_id)) continue;
@@ -1468,15 +1485,10 @@ export class TableSyncsService {
             linkMapping: m,
             req,
           });
-          if (relatedModelId && !keptLinkRtIds.has(relatedModelId)) {
-            await this.dropShadowForRelated({
-              context,
-              baseId,
-              tableSyncId,
-              relatedModelId,
-              req,
-            });
+          if (relatedModelId) {
+            droppedLinkRtIds.add(relatedModelId);
           }
+          droppedLinkSrcColIds.add(m.source_column_id);
           structureChanged = true;
           continue;
         }
@@ -1498,6 +1510,73 @@ export class TableSyncsService {
           })
           .del();
         structureChanged = true;
+      }
+
+      // [CE-EE] F09 P4-R4(lane5 E1): convergence sweep — a junction mapping
+      // whose junction is no longer referenced by any live link column on
+      // the mirror is a zombie (e.g. an earlier PATCH was interrupted after
+      // the link column meta died but before its junction / mapping rows
+      // were cleaned: the retry's dropMirrorLinkColumn can no longer resolve
+      // the junction from a missing column). Idempotent: table drop
+      // best-effort, then the registration row is deleted unconditionally.
+      // Gated on an actual link drop — keep-only PATCHes stay byte-identical
+      // to R1.
+      if (droppedLinkSrcColIds.size) {
+        const freshDest = await Model.get(context, mainMapping.dest_table_id);
+        if (freshDest) {
+          await freshDest.getColumns(context);
+          const liveJunctionIds = new Set<string>();
+          for (const c of (freshDest.columns || []) as any[]) {
+            if (!isSyncLinkColumnUidt(c.uidt)) continue;
+            const opt = await (c as Column).getColOptions<LinkToAnotherRecordColumn>(
+              context,
+            );
+            if (opt?.fk_mm_model_id) liveJunctionIds.add(opt.fk_mm_model_id);
+          }
+          for (const jm of mappings as any[]) {
+            if (jm.role !== TableSyncMappingRole.Junction) continue;
+            if (liveJunctionIds.has(jm.dest_table_id)) continue;
+            try {
+              await this.tablesService.tableDelete(context, {
+                tableId: jm.dest_table_id,
+                forceDeleteSyncs: true,
+                req,
+              });
+            } catch {
+              /* already gone — the registration row is what matters */
+            }
+            await Noco.ncMeta.knex(MetaTable.TABLE_SYNC_MAPPINGS)
+              .where({ id: jm.id })
+              .del();
+          }
+        }
+      }
+
+      // [CE-EE] F09 P4-R4(lane5 E1): phase 2 — shared-shadow refcount drop.
+      // All leaving columns are gone at this point, so a shadow only goes
+      // when NO remaining mapping row still references it: keptLinkRtIds is
+      // the surviving-reference set, and the some() below re-checks it
+      // literally against the mapping rows this PATCH keeps.
+      if (droppedLinkRtIds.size) {
+        const keptRtBySrcColId = new Map(
+          desiredLinks.map((l) => [l.column.id as string, l.relatedModelId]),
+        );
+        for (const relatedModelId of droppedLinkRtIds) {
+          if (keptLinkRtIds.has(relatedModelId)) continue;
+          const stillReferenced = mainColMappings.some(
+            (m) =>
+              !droppedLinkSrcColIds.has(m.source_column_id) &&
+              keptRtBySrcColId.get(m.source_column_id) === relatedModelId,
+          );
+          if (stillReferenced) continue;
+          await this.dropShadowForRelated({
+            context,
+            baseId,
+            tableSyncId,
+            relatedModelId,
+            req,
+          });
+        }
       }
 
       // adds: desired source columns not yet mapped → create the mirror

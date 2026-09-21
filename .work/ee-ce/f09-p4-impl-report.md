@@ -186,3 +186,45 @@
 2. **旧行为自愈路径**：R1 之前被旧 updateSync 拆毁的 sync（若仍在）可用「PATCH 移除该 link → PATCH 加回 + resync」重建三层；新代码不再产生该损伤。
 3. 源 link 列被删除后其残留 mapping 的 junction mapping 行成为惰性孤儿（引擎因 srcCol 缺失自动跳过；P4 前既有边角，未在本轮处理）。
 4. lane3b M2（columnAdd 对 synced 表无守卫，P1 起既有）未在本轮范围，维持已知裁剪记录。
+
+## 11. P4-R4 修复批记录（2026-09-22）
+
+> 输入 = R4 唯一 error（lane5 E1，双 junction 共享 shadow 下 updateSync drop 腿 404 + 部分拆毁 + 重试留孤儿 junction）+ lane1 M1（processor 注释腐化，doc-only）。全部改动 `// [CE-EE] F09 P4-R4` 标记。
+
+### error↔修复映射
+
+| 项 | 报告来源 | 根因 | 修复 |
+|---|---|---|---|
+| **E1 drop 腿共享 shadow 拆毁序** | lane5 E1 | drop 循环逐 link `dropMirrorLinkColumn` 后**立即** `dropShadowForRelated`——全 link 落选时 `keptLinkRtIds` 为空，第一条 link 的 drop 即删共享 shadow → 第二条 link 的 `columnDelete` 撞已删结构 404 中断循环；重试时 dest 列已不存在 → `dropMirrorLinkColumn` 解析不出 junction → junction mapping 行永久残留 | **两阶段 drop**：phase 1 循环只拆每条落选 link 的镜像列 + junction + 各自 mapping 行（此时全部 shadow 仍站立）；循环后新增**收敛 sweep**（见下）；phase 2 才做 shadow 引用计数判定——`keptLinkRtIds`（存活引用集）+ 逐条复验「无其它 mapping 行仍引用该 RT」双闸，通过才 `dropShadowForRelated` |
+| **E1 重试收敛** | 同上 | 同上（部分拆毁态不可收敛） | ① `dropMirrorLinkColumn` 幂等化：dest 列缺失 → 跳过 columnDelete 不报错；columnDelete 抛 404 族（`not found`/404）→ 吞掉继续走 junction/mapping 清理，其它错误照常上抛；② 新增 **junction 僵尸 sweep**：link drop 发生过的 PATCH 里，重读 dest 模型，凡 junction-role mapping 的 junction 不再被任何存活 link 列引用（早前中断 PATCH 的残留态）→ `tableDelete` best-effort + 无条件删登记行。keep-only PATCH 不触发 sweep（与 R1 行为逐字节一致） |
+| **M1 注释腐化** | lane1 M1（doc-only） | processor 头注释仍写 catch-up「WITHOUT the disappearance sweep」，与 P3-R2 实际实现（catch-up 落入全量 pass 含 sweep）矛盾 | 注释改为准确表述（指向 P3-R2 分支） |
+
+### 改动文件
+
+| 文件 | 内容 |
+|---|---|
+| `packages/nocodb/src/services/table-syncs.service.ts` | E1：drop 循环两阶段化（`droppedLinkRtIds`/`droppedLinkSrcColIds` 收集）+ junction 僵尸 sweep + shadow 引用计数 phase 2；`dropMirrorLinkColumn` 404 族幂等容错 |
+| `packages/nocodb/src/modules/jobs/jobs/table-sync/table-sync.processor.ts` | M1：pull-shape 头注释修正（catch-up = 全量 pass 含 sweep） |
+| `packages/nocodb/src/services/table-syncs.Fork.spec.ts` | 3 个 R4 回归用例（见下），60→63 |
+| `.work/ee-ce/f09p4r4-fix-selftest.sh` | 活体自测脚本（本节验证所用） |
+
+### 回归用例（table-syncs.Fork.spec.ts，60→63）
+
+- **drops ONE of two same-RT links**：删 L1 → 仅 L1 镜像列 + L1 junction 删；共享 shadow 保留；L2 三层不动（无重建、无 updateSynced）；投 full-resync。
+- **drops BOTH same-RT links**：双 junction + 共享 shadow 全清且各恰一次（shadow 1 次，非 2 次）；双 junction mapping 行 role-scoped 删除断言；投 full-resync。
+- **converges on retry after mid-loop failure**：columnDelete 首调「列 meta 已毁 + 非 404 错误上抛」模拟部分拆毁 → PATCH rejects；同 PATCH 重试 → sweep 清僵尸 junction + L2 正常级联 + shadow 引用计数删除 → 表集合等价断言（sweep 在循环后，顺序与 happy path 不同）。
+
+### 质量门与活体
+
+- `npx tsc --noEmit`：exit 0。
+- `npx jest --testPathPattern 'Fork'`：**63/63**（3 suites；P1–P3 44 + P4 3 + R1 13 + R4 3）。
+- 活体（:8080 R4 构建 → rsync ~/.nocodb-run → 受控重启，双条件核验过：进程启动 04:06:36 > dist mtime 03:57:30；dist 特征串 `P4-R4`×5、`P4-R2`×2、`prohibitedSyncTableOperation`×7；nocodb-dev；`.work/ee-ce/f09p4r4-fix-selftest.sh` **21 PASS / 0 FAIL**，测试 base 清零核验过）：
+  - 双 link 同选建 sync → 1S+2J，配对回填 1/1。
+  - **删单条** → 200；shadow 保留、余 1 junction 配对 1、Ns 列删 Ns2 列留。
+  - **加回** → 复用共享 shadow（1S+2J），配对 1/1。
+  - **一条 PATCH 全删（lane5 E1 精确触发，旧代码此处 404 + 孤儿 junction）** → 200；roles=[main]，双 junction 表 + shadow 表全删（404 核验），镜像 link 列零残留。
+  - **重复轮**（null 重建 → 再全删）→ 收敛可重复，零残留。
+
+### 遗留（新增/更新，均不阻塞）
+
+1. §9/§10 遗留全部维持；§10 遗留 3「源 link 列被删后惰性孤儿」——本批 sweep 在**该 sync 下一次 selection PATCH** 时会顺带清掉僵尸 junction（提前自愈），无需专门迁移。

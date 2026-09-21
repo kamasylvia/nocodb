@@ -243,10 +243,11 @@ export class TableSyncProcessor {
       skipAttachmentOwnershipCheck: true,
     } as const;
 
-    // [CE-EE] F09 P3: pull shape — incremental runs with touched row ids pull
-    // those rows by pk; incremental runs without ids (catch-up) run a full
-    // upsert pass WITHOUT the disappearance sweep; everything else stays the
-    // full pass
+    // [CE-EE] F09 P3 (wording corrected P4-R4/lane1 M1): pull shape —
+    // incremental runs with touched row ids pull those rows by pk;
+    // incremental runs WITHOUT ids (catch-up) fall through to the FULL pass
+    // (upsert + disappearance sweep — see the branch below, P3-R2); every
+    // other mode is the full pass too
     const isIncremental = jobData?.mode === 'incremental';
     const affectedIds =
       isIncremental && jobData?.affectedIdsBySource
