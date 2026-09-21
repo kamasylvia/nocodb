@@ -3,7 +3,16 @@
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
 - 更新时间: 2026-09-20 10:3x（**用户指令中止任务与巡检**：整点 automation 已删除；P4-R2 五路会审中止（~2min，零报告））
-- LOCK: active（**F09 P4 会审 R5 冲刺在飞**：R4 终裁 4/5 PASS + lane5 1E（共享 shadow drop 腿 404/孤儿）→ 修复批 b4849136e1（两阶段 drop + 僵尸 sweep + 幂等，活体 21 PASS）已落 main 并 dist 热修；R4 记清洁连击 2/3）
+- LOCK: idle（**项目收官**：F09 P1–P4 全部 pass；全部裁定功能完成）
+- 恢复路径：全部完成后无待办；如重启 F06 或新增功能，按各自调研报告与本文件流程节执行
+
+## F09 P4 PASS（2026-09-22 08:0x，R3/R4/R5 连续清洁连击 3/3 —— 项目收官）
+
+- 实现链：43357b7c77（LTAR 三层 +2055/−143）→ 5368ef1366（R1 六族修复：updateSync link 级联重写/assertLinkWriteAllowed 五入口/paste+link 400/deleteSync 守卫/mark_deleted 一致）→ 5d25acfc51 + 840c4218aa（P3 延续修：全量 pass sweep/v3 通道守卫/凭据剥离/Convert 弹窗）→ b4849136e1（R4：共享 shadow 两阶段 drop + 僵尸 sweep + 幂等）
+- 复审史：R1（4 error 族五路汇合）→ R2（四路同判 delete 残口 + v3 通道新发现）→ R3（5/5 PASS 清洁）→ R4（4/5 PASS + lane5 1E 单路修而不计）→ R5（5/5 全 PASS 0 error 清洁）
+- R5 终裁：lane1/2/3/4/5 全 PASS 0 error——E1 修复三腿活体零复现（lane4 引擎口径 + lane5 UI 口径 + lane3 安全五焦点全绿）；63/63 jest；Zite 5/5
+- 项目最终态：**10 项功能主线 9/10 pass + F09 四阶段全 pass**；F06 维持 fork 限制裁剪（C，用户确认）；Custom Sync 维持裁剪
+- 收尾三件套：GOAL-STATE 翻账（本节）+ TODO 勾选 + 各阶段 impl-report 已归档
 - R3 终裁记录（09-22 01:0x）：R2 lane3 E1（v3 LTAR 通道绕过）修复 840c4218aa 回归闭口——静态调用图（4 处直调全落守卫内）+ 活体（editor/owner 422 ×多路、合法路径不误伤、realtime 2s 跟随无回归）三路互证；Convert 确认弹窗全中文活体过；R4 同规格站位 + zh-Hans/注释清理验证在飞
 - 长挂起注记：R2 首批（09-20 10:4x 派遣）经长挂起散失，仅 lane4 报告在手；roster 更新 = reasonix 回归（clinepass 已修）
 - 恢复记录：中止期间完成 Resilio 恢复、全局 AGENTS §11/§12 升格（5 项 nocodb 反哺）、workspace 侧 .work/config.toml 落位（[matrix.review] external=omp/pi/kilo + subagent_count=1，恰 = min_valid_lanes）
