@@ -3,7 +3,8 @@
 > 保活巡检与续作会话先读本文件。更新纪律：每里程碑后立即更新 `更新时间` 与 `当前状态`；活跃会话工作时把 `LOCK` 置 `active`，结束改 `idle`。
 
 - 更新时间: 2026-09-20 10:3x（**用户指令中止任务与巡检**：整点 automation 已删除；P4-R2 五路会审中止（~2min，零报告））
-- LOCK: idle（**任务中止挂起**——恢复时按本文件 P4 节续推：R1 修复批 5368ef1366 已落 main 待 R2 回归审）
+- LOCK: active（**恢复**（2026-09-20 10:3x 用户指令）——P4-R2 四路在飞（阵容按 .work/config.toml：omp/pi/kilo + subagent，reasonix 已裁））
+- 恢复记录：中止期间完成 Resilio 恢复、全局 AGENTS §11/§12 升格（5 项 nocodb 反哺）、workspace 侧 .work/config.toml 落位（[matrix.review] external=omp/pi/kilo + subagent_count=1，恰 = min_valid_lanes）
 
 ## 中止状态（2026-09-20 10:3x，用户指令「中止任务和巡检」）
 
